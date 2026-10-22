@@ -1,0 +1,21 @@
+# 构建产物
+build/
+.cache/
+*.elf
+*.map
+*.bin
+*.hex
+compile_commands.json
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/

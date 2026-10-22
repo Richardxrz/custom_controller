@@ -1,0 +1,22 @@
+# clangd 配置：只作用于 tests/host/ 目录树下的文件。
+#
+# 为什么需要它：
+#   clangd 找不到 tests/host/main.c 的编译命令时，会"就近推断"——它会借用
+#   compile_commands.json 里 Core/Src/main.c 的命令（ARM 交叉编译 + 固件 -I 列表）。
+#   那份 -I 列表里 Core/Inc 排在前面，于是 #include "usart.h" 命中的是真正的
+#   HAL 头 Core/Inc/usart.h，而不是本目录的 tests/host/stub/usart.h
+#   → stub_hal_t / stub_reset 全部"类型未知"。
+#   命令行跑 ./tests/host/run.sh 不会遇到，因为那里显式 -I tests/host/stub，
+#   而且根本不加 -I Core/Inc。同一个文件两套编译命令 = 编辑器与构建不一致。
+#
+# 这里把固件的编译参数全部摘掉，换成主机侧的真实参数，
+# 让 clangd 的报错与 run.sh 的 cc 命令完全一致。
+CompileFlags:
+  Remove: [-I*, -D*, --target=*, -mcpu=*, -mfpu=*, -mfloat-abi=*, -mthumb, -fstack-usage]
+  Add:
+    - -std=c11
+    - -Wall
+    # 注意：Add 里的相对路径是按【编译命令的工作目录】解析的（这里是 build/Debug），
+    # 不是按本文件所在的目录，所以必须写绝对路径。仓库挪位置时改这两行。
+    - -I/Users/a1234/Embedded/stm32_module_lab/tests/host/stub
+    - -I/Users/a1234/Embedded/stm32_module_lab/Module
