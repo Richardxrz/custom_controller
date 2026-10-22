@@ -1,5 +1,15 @@
 #include "app.h"
-#include "test_tx.h"
 
-void App_SetUp(void) { Test_TxIt_SetUp(); }
-void App_Loop(void) { Test_TxIt_Run(); }
+#ifdef CC_ROLE_ARM
+#include "arm_app.h"
+
+void App_SetUp(void) { Arm_Setup(); }
+void App_Loop(void) { Arm_Loop(); }
+
+#else
+#include "master_app.h"
+
+void App_SetUp(void) { Master_Setup(); }
+void App_Loop(void) { Master_Loop(); }
+
+#endif

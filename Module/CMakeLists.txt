@@ -71,3 +71,21 @@ add_library(settings INTERFACE)
 target_include_directories(settings INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+add_library(rm_frame STATIC)
+target_sources(rm_frame PRIVATE rm_frame.c)
+target_include_directories(rm_frame PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_library(app_payload STATIC)
+target_sources(app_payload PRIVATE app_payload.c)
+target_include_directories(app_payload PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(app_payload PUBLIC rm_frame)
+
+add_library(dm_can STATIC)
+target_sources(dm_can PRIVATE dm_can.c)
+target_include_directories(dm_can PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_library(bus_servo_group STATIC)
+target_sources(bus_servo_group PRIVATE bus_servo_group.c)
+target_include_directories(bus_servo_group PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(bus_servo_group PUBLIC bus_servo)

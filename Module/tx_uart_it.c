@@ -1,7 +1,7 @@
 #include "tx_uart_it.h"
 #include <string.h>
 
-#define TX_MAX_BUF 128
+#define TX_MAX_BUF 320
 #define TX_INSTANCE_MAX 2
 
 struct TxIt_t {

@@ -69,5 +69,12 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     # Add user defined libraries
     rx_dma
     tx_uart_it
+    ringbuf
+    servo_codec
+    bus_servo
+    bus_servo_group
+    rm_frame
+    app_payload
+    dm_can
     app
 )
