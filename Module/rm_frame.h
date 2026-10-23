@@ -28,7 +28,7 @@
 #include <stdint.h>
 
 #define RM_SOF 0xA5u
-#define RM_DATA_MAX 128u
+#define RM_DATA_MAX 300u
 
 typedef struct {
   uint16_t cmd_id;

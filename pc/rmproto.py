@@ -11,7 +11,7 @@ import struct
 from dataclasses import dataclass
 
 SOF = 0xA5
-DATA_MAX = 128
+DATA_MAX = 300
 
 
 def crc8(data: bytes, init: int = 0xFF) -> int:

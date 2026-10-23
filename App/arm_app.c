@@ -45,6 +45,7 @@ static uint32_t s_last_telem;
 static uint8_t s_seq;
 static bool s_have_cmd;
 static bool s_estop;
+static bool s_enabled;
 
 static float map_pwm(uint8_t i, uint16_t pwm) {
   float x = ((float)pwm - 1500.0f) / 1000.0f;
@@ -73,6 +74,15 @@ static void parse_rx(uint32_t now) {
     if (!CcUplink_Decode(&up, f.data)) {
       continue;
     }
+    if (!s_enabled) {
+      /* 收到第一条有效指令才使能电机：上电时电机是松的，避免直接往 0 位冲 */
+      uint8_t en[8];
+      Dm_SpecialFrame(en, 'e');
+      for (uint8_t k = 0; k < ARM_JOINTS; k++) {
+        Board_Can1_Send(s_cfg[k].id, en);
+      }
+      s_enabled = true;
+    }
     s_up = up;
     s_have_cmd = true;
     s_last_rx = now;
@@ -99,6 +109,9 @@ static void poll_can(void) {
 }
 
 static void control(uint32_t now) {
+  if (!s_enabled) {
+    return; /* 没收到过指令：不发 MIT，电机保持失能 */
+  }
   bool timeout = (uint32_t)(now - s_last_rx) > ARM_LINK_TIMEOUT_MS;
   const float step = ARM_SLEW_RAD_PER_S * (ARM_CTRL_PERIOD_MS / 1000.0f);
   for (uint8_t i = 0; i < ARM_JOINTS; i++) {
@@ -153,12 +166,7 @@ void Arm_Setup(void) {
   RmParser_Reset(&s_parser);
 
   Board_Can1_Init();
-  uint8_t en[8];
-  Dm_SpecialFrame(en, 'e');
-  for (uint8_t i = 0; i < ARM_JOINTS; i++) {
-    Board_Can1_Send(s_cfg[i].id, en);
-  }
-  HAL_Delay(20);
+  s_enabled = false;
 
   uint32_t now = HAL_GetTick();
   s_last_rx = now;
