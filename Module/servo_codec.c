@@ -12,6 +12,7 @@ enum {
 
 static const char *const kQuery[SERVO_Q_COUNT] = {
     "PRAD", "PID", "PMOD", "PVER", "PULK", "PULR", "PDPT", "PDCT", "PDST", "PRTV",
+    "PCSM", "PCSR",
 };
 
 /* 手工写数字而不是 snprintf：裸机上 snprintf 会拖进几 KB 的格式化库，

@@ -50,6 +50,8 @@ typedef enum {
   SERVO_Q_DCT,     /* 继续 */
   SERVO_Q_DST,     /* 停止 */
   SERVO_Q_PRTV,    /* 温度/电压 */
+  SERVO_Q_PCSM,    /* 开机释力（持久配置） */
+  SERVO_Q_PCSR,    /* 开机恢复力矩（持久配置） */
   SERVO_Q_COUNT
 } ServoCodecQuery;
 

@@ -26,6 +26,16 @@ python3 viewer.py --list
 2. 舵机 3 根线插白色总线口（看好 `- / + / S` 顺序）。
 3. 舵机电源 6 V 并在总线 `+ / -` 上；**不要用 USB 给舵机供电**。
 
+**先设「开机释力」**（ZP10S 实测固件 `ZL-ZServo_AD_CBM V2.1.16STG` **不支持手册里的 `PULK`**，
+但支持持久配置 `PCSM`）：
+
+```bash
+python3 ~/ai/50-机械臂控制器/tools/servo_cli.py -p /dev/tty.usbserial-XXXX free 1
+# 然后给舵机断电、重新上电
+```
+
+上电后舵机应处于自由状态（手能扳动）；`PRAD` 轮询不会重新加力，只有发运动指令才会。
+
 **先确认 ID**（出厂是 0）：
 
 ```bash
