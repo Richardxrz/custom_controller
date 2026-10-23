@@ -69,6 +69,38 @@ class State:
             return list(self.joints), self.frames, self.drops, self.timeouts, self.err
 
 
+class Publisher:
+    """把当前 6 轴打包成 30 B，按 50 Hz publish CustomControl。"""
+
+    def __init__(self, host: str, port: int, client_id: str):
+        import mqtt_link
+
+        self.mqtt_link = mqtt_link
+        self.link = mqtt_link.MqttLink(host, port, client_id)
+        self.ok = False
+        self.count = 0
+        self.seq = 0
+        self.last = 0.0
+
+    def start(self) -> bool:
+        self.ok = self.link.start()
+        return self.ok
+
+    def maybe_publish(self, joints: list[int]) -> None:
+        if not self.ok:
+            return
+        now = time.time()
+        if now - self.last < 0.02:
+            return
+        self.last = now
+        self.seq = (self.seq + 1) & 0xFF
+        import payload
+
+        up = payload.Uplink(seq=self.seq, joints=joints, flags=0x01)
+        if self.link.publish_control(payload.encode_uplink(up)):
+            self.count += 1
+
+
 class MasterSource(threading.Thread):
     def __init__(self, port: str, baud: int, state: State):
         super().__init__(daemon=True)
@@ -163,12 +195,13 @@ class SimSource(threading.Thread):
 
 
 class Viewer:
-    def __init__(self, root, state: State):
+    def __init__(self, root, state: State, publisher=None):
         import tkinter as tk
 
         self.tk = tk
         self.root = root
         self.state = state
+        self.publisher = publisher
         root.title("自定义控制器 · 6 轴角度")
         root.geometry("820x420")
         root.configure(bg="#141414")
@@ -200,6 +233,8 @@ class Viewer:
 
     def tick(self) -> None:
         joints, frames, drops, timeouts, err = self.state.snapshot()
+        if self.publisher is not None:
+            self.publisher.maybe_publish(joints)
         now = time.time()
         if now - self.t0 >= 1.0:
             self.fps = (frames - self.last_frames) / (now - self.t0)
@@ -212,16 +247,20 @@ class Viewer:
             self.canvas.itemconfigure(self.values[i],
                                       text=f"{pwm:4d}  {pwm_to_deg(pwm):6.1f}°")
         status = f"{self.fps:5.1f} 帧/s   总帧 {frames}   丢帧 {drops}   超时 {timeouts}"
+        if self.publisher is not None:
+            status += f"   MQTT {self.publisher.count}"
         if err:
             status += f"   [{err}]"
         self.status.configure(text=status)
         self.root.after(33, self.tick)
 
 
-def text_loop(state: State, seconds: float | None) -> None:
+def text_loop(state: State, seconds: float | None, publisher=None) -> None:
     t0 = time.time()
     while seconds is None or time.time() - t0 < seconds:
         joints, frames, drops, timeouts, err = state.snapshot()
+        if publisher is not None:
+            publisher.maybe_publish(joints)
         line = "  ".join(f"J{i}:{pwm:4d}({pwm_to_deg(pwm):5.1f}°)" for i, pwm in enumerate(joints))
         sys.stdout.write("\r" + line + f"  frames={frames} drops={drops} to={timeouts} {err}")
         sys.stdout.flush()
@@ -238,6 +277,9 @@ def main() -> int:
     ap.add_argument("--text", action="store_true", help="不弹窗，终端打印")
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--list", action="store_true", help="列出串口后退出")
+    ap.add_argument("--mqtt-host", help="可选：同时发布 CustomControl 到 MQTT")
+    ap.add_argument("--mqtt-port", type=int, default=3333)
+    ap.add_argument("--mqtt-id", default="1")
     args = ap.parse_args()
 
     if args.list:
@@ -260,15 +302,22 @@ def main() -> int:
             return 1
         src = MasterSource(args.port, args.baud or 921600, state)
 
+    publisher = None
+    if args.mqtt_host:
+        publisher = Publisher(args.mqtt_host, args.mqtt_port, args.mqtt_id)
+        if not publisher.start():
+            print("MQTT 连接失败，继续只显示")
+            publisher = None
+
     src.start()
     try:
         if args.text:
-            text_loop(state, args.seconds)
+            text_loop(state, args.seconds, publisher)
         else:
             import tkinter as tk
 
             root = tk.Tk()
-            Viewer(root, state)
+            Viewer(root, state, publisher)
             if args.seconds:
                 root.after(int(args.seconds * 1000), root.destroy)
             root.mainloop()
