@@ -27,11 +27,15 @@ class FakeSer:
             if sid in self.values:
                 self.buf += f"#{sid:03d}P{self.values[sid]:04d}!".encode()
 
+    @property
+    def in_waiting(self):
+        return len(self.buf)
+
     def read(self, n=1):
         if not self.buf:
             return b""
-        b = self.buf[:1]
-        self.buf = self.buf[1:]
+        b = self.buf[:n]
+        self.buf = self.buf[n:]
         return b
 
     def close(self):
