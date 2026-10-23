@@ -22,6 +22,7 @@ import time
 import dm_can
 import payload
 import slcan
+import usb2can_classic
 
 
 class Pid:
@@ -56,7 +57,13 @@ class Damiao:
         self.bus.send(self.cfg.id, dm_can.mit_pack(self.cfg, pos, vel, kp, kd, torque))
 
     def poll(self) -> None:
-        for cid, data in self.bus.recv():
+        for item in self.bus.recv():
+            if isinstance(item, dict):
+                if item.get("cmd") not in (0x11, 0x12):
+                    continue
+                cid, data = item["id"], item["data"]
+            else:
+                cid, data = item
             fb = dm_can.feedback_decode(self.cfg, data)
             if fb is not None:
                 self.fb = fb
@@ -69,6 +76,8 @@ def pwm_to_rad(pwm: int) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", required=True)
+    ap.add_argument("--transport", choices=["slcan", "dm_classic"], default="slcan")
+    ap.add_argument("--serial-baud", type=int, default=921600, help="CDC 串口波特率（dm_classic）")
     ap.add_argument("--baud", type=int, default=115200, help="SLCAN 串口波特率，不是 CAN 波特率")
     ap.add_argument("--bitrate", type=int, default=1_000_000)
     ap.add_argument("--id", type=int, default=1)
@@ -91,26 +100,26 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.dry_run:
-        class _DrySer:
-            def __init__(self):
-                self.tx = bytearray()
+        class _Dry:
+            def send(self, can_id, data):
+                pass
 
-            def write(self, data):
-                self.tx += data
-                return len(data)
-
-            def read(self, n=1):
-                return b""
+            def recv(self):
+                return []
 
             def close(self):
                 pass
 
-        bus = slcan.SlcanBus(ser=_DrySer())
+        bus = _Dry()
+        print("dry-run：只跑控制循环，不接硬件")
+    elif args.transport == "dm_classic":
+        bus = usb2can_classic.Usb2CanClassic(args.port, args.serial_baud)
         bus.open(args.bitrate)
-        print("dry-run：只打印帧，不接硬件")
+        print("transport: 达妙经典 USB2CAN")
     else:
         bus = slcan.SlcanBus(args.port, args.baud)
         bus.open(args.bitrate)
+        print("transport: SLCAN")
     cfg = dm_can.MotorCfg(id=args.id)
     motor = Damiao(bus, cfg)
     motor.enable()
