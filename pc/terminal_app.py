@@ -15,6 +15,7 @@ import mqtt_link
 import payload
 import rmproto
 import serial_link
+import servo_link as servo_link_mod
 
 
 class SimLink:
@@ -82,18 +83,25 @@ class TerminalApp:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", help="串口（主端 C 板）")
+    ap.add_argument("--source", choices=["master", "servo", "sim"], default="master")
+    ap.add_argument("--port", help="串口（master: USB-TTL；servo: ZL 转接板）")
     ap.add_argument("--baud", type=int, default=921600)
     ap.add_argument("--host", default=mqtt_link.default_config()["host"])
     ap.add_argument("--mqtt-port", type=int, default=mqtt_link.default_config()["port"])
     ap.add_argument("--id", default="1", help="clientID = 机器人 ID")
+    ap.add_argument("--ids", default="1,2,3,4,5,6")
     ap.add_argument("--hz", type=float, default=75.0)
-    ap.add_argument("--simulate", action="store_true")
+    ap.add_argument("--simulate", action="store_true", help="等价于 --source sim")
     ap.add_argument("--seconds", type=float, default=None)
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
-    link = SimLink() if args.simulate else serial_link.SerialLink(args.port, args.baud)
+    if args.simulate or args.source == "sim":
+        link = SimLink()
+    elif args.source == "servo":
+        link = servo_link_mod.ServoLink(args.port, [int(x) for x in args.ids.split(",")])
+    else:
+        link = serial_link.SerialLink(args.port, args.baud)
     mq = mqtt_link.MqttLink(args.host, args.mqtt_port, args.id)
     app = TerminalApp(link, mq, args.hz)
     mq.handlers[mqtt_link.TOPIC_BYTE_BLOCK] = app._on_telemetry
