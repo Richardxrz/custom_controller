@@ -14,6 +14,7 @@
 #define ARM_TELEM_PERIOD_MS 20u /* 50 Hz 回传 */
 #define ARM_LINK_TIMEOUT_MS 300u
 #define ARM_ESTOP_BIT 0x04u
+#define ARM_SLEW_RAD_PER_S 4.0f /* 27 Hz 输入下靠它把台阶磨平 */
 
 /* 量程/限位先按「P ±12.5、V ±30」的通用值；T 量程按 8009/4340 暂定，上电机前对达妙手册核对。
  * 关节分配：J0..J2 = 8009（底座/肩/肘），J3..J5 = 4340（腕）。 */
@@ -37,6 +38,7 @@ static CcDownlink s_down;
 static DmFeedback s_fb[ARM_JOINTS];
 static bool s_fb_valid[ARM_JOINTS];
 static float s_target[ARM_JOINTS];
+static float s_smooth[ARM_JOINTS];
 static uint32_t s_last_rx;
 static uint32_t s_last_ctrl;
 static uint32_t s_last_telem;
@@ -98,8 +100,13 @@ static void poll_can(void) {
 
 static void control(uint32_t now) {
   bool timeout = (uint32_t)(now - s_last_rx) > ARM_LINK_TIMEOUT_MS;
+  const float step = ARM_SLEW_RAD_PER_S * (ARM_CTRL_PERIOD_MS / 1000.0f);
   for (uint8_t i = 0; i < ARM_JOINTS; i++) {
-    float pos = s_target[i];
+    float delta = s_target[i] - s_smooth[i];
+    if (delta > step) delta = step;
+    if (delta < -step) delta = -step;
+    s_smooth[i] += delta;
+    float pos = s_smooth[i];
     float kp = 8.0f;
     float kd = 0.5f;
     if (!s_have_cmd || timeout || s_estop) {

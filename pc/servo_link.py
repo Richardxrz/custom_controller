@@ -20,7 +20,7 @@ class ServoLink:
     def __init__(self, port: str | None = None, ids: list[int] | None = None,
                  baud: int = 115200, per_axis_timeout: float = 0.01, ser=None):
         if ser is None:
-            self.ser = serial.Serial(port, baudrate=baud, timeout=0.001)
+            self.ser = serial.Serial(port, baudrate=baud, timeout=0)
         else:
             self.ser = ser
         self.ids = ids or [1, 2, 3, 4, 5, 6]
@@ -38,12 +38,13 @@ class ServoLink:
         buf = b""
         t0 = time.perf_counter()
         while time.perf_counter() - t0 < self.per_axis_timeout:
-            b = self.ser.read(1)
-            if not b:
-                continue
-            buf += b
-            if b == b"!":
-                break
+            n = self.ser.in_waiting
+            if n:
+                buf += self.ser.read(n)
+                if b"!" in buf:
+                    break
+            else:
+                time.sleep(0)
         m = self.pattern.search(buf)
         if m and int(m.group(1)) == sid:
             return int(m.group(2))

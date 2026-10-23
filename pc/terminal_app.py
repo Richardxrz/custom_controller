@@ -78,7 +78,7 @@ class TerminalApp:
         t0 = time.time()
         while seconds is None or time.time() - t0 < seconds:
             self.step()
-            time.sleep(0.001)
+            time.sleep(0)
 
 
 def main() -> int:
@@ -116,7 +116,7 @@ def main() -> int:
         last_report = t0
         while args.seconds is None or time.time() - t0 < args.seconds:
             app.step()
-            time.sleep(0.001)
+            time.sleep(0)
             if time.time() - last_report >= 1.0:
                 last_report = time.time()
                 line = (f"serial={app.serial_frames} pub={mq.published} "
