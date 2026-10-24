@@ -2,11 +2,11 @@
 #include "stm32f4xx.h"
 
 bool initialized_ = false;
-uint32_t start_ = 0;
-uint32_t stop_ = 0;
-float max_dt_us_ = TIMER_NO_MEASUREMENT_MAX_US;
-float min_dt_us_ = TIMER_NO_MEASUREMENT_MIN_US;
-uint32_t count_ = 0;
+static uint32_t start_ = 0;
+static uint32_t stop_ = 0;
+static float max_dt_us_ = TIMER_NO_MEASUREMENT_MAX_US;
+static float min_dt_us_ = TIMER_NO_MEASUREMENT_MIN_US;
+static uint32_t count_ = 0;
 
 bool Timer_Init(void) {
   if (initialized_) {
