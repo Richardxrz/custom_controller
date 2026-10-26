@@ -20,6 +20,7 @@ import math
 import time
 
 import dm_can
+import joint_map
 import payload
 import slcan
 import usb2can_classic
@@ -69,10 +70,6 @@ class Damiao:
                 self.fb = fb
 
 
-def pwm_to_rad(pwm: int) -> float:
-    return (pwm - 1500) / 1000.0 * 1.5
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", required=True)
@@ -97,6 +94,13 @@ def main() -> int:
     ap.add_argument("--client-id", default="1")
     ap.add_argument("--seconds", type=float, default=None)
     ap.add_argument("--dry-run", action="store_true", help="不接硬件，只打印 CAN 帧")
+    ap.add_argument("--map-json", help="calibrate.py 生成的 joint_map 配置")
+    ap.add_argument("--prad-min", type=int, help="覆盖标定：PRAD 下限")
+    ap.add_argument("--prad-max", type=int, help="覆盖标定：PRAD 上限")
+    ap.add_argument("--joint-min", type=float, default=-1.5)
+    ap.add_argument("--joint-max", type=float, default=1.5)
+    ap.add_argument("--dir", type=int, default=1, choices=[-1, 1])
+    ap.add_argument("--wrap", action="store_true")
     args = ap.parse_args()
 
     if args.dry_run:
@@ -124,6 +128,20 @@ def main() -> int:
     motor = Damiao(bus, cfg)
     motor.enable()
     time.sleep(0.02)
+
+    jm = joint_map.JointMap(joint_min=args.joint_min, joint_max=args.joint_max,
+                            direction=args.dir, wrap=args.wrap)
+    if args.map_json:
+        import json
+        with open(args.map_json, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg.pop("wrap", None) if not args.wrap else None
+        jm = joint_map.JointMap(**{k: v for k, v in cfg.items() if k in
+                                   {"prad_min", "prad_max", "joint_min", "joint_max", "direction", "wrap"}})
+    if args.prad_min is not None:
+        jm.prad_min = args.prad_min
+    if args.prad_max is not None:
+        jm.prad_max = args.prad_max
 
     latest = {"pwm": 1500}
     mq = None
@@ -159,7 +177,7 @@ def main() -> int:
             if args.test:
                 target = args.range * math.sin((now - t0) * 1.2)
             else:
-                target = pwm_to_rad(latest["pwm"])
+                target = jm.to_joint(latest["pwm"])
 
             if args.mode == "pid":
                 pos = motor.fb["pos"] if motor.fb else 0.0

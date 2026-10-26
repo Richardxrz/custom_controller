@@ -39,7 +39,9 @@ typedef struct {
 
 typedef struct {
   uint8_t id;
-  uint8_t state;      /* 反馈首字节：0x01 失能 / 0x11 使能 */
+  uint8_t state;      /* D[0] 原始值：ID | ERR<<4 */
+  uint8_t ctrl_id;    /* D[0] 低 4 位：控制器 ID */
+  uint8_t err;        /* D[0] 高 4 位：0 失能 1 使能 8 超压 9 欠压 A 过流 B MOS过温 C 线圈过温 D 通讯丢失 E 过载 */
   uint8_t temp_mos;   /* MOS 温度 ℃ */
   uint8_t temp_rotor; /* 线圈温度 ℃ */
   float pos;          /* rad */
@@ -60,6 +62,11 @@ extern void Dm_MitPack(uint8_t out[8], const DmMotorCfg *cfg, float pos, float v
  * @retval false = 数据里的 ID 与 cfg 不符（不是这台电机的帧）
  */
 extern bool Dm_FeedbackDecode(DmFeedback *fb, const DmMotorCfg *cfg, const uint8_t data[8]);
+
+/**
+ * @brief  ERR 码转文字（日志用）
+ */
+const char *Dm_ErrName(uint8_t err);
 
 /**
  * @brief  特殊命令帧（8 字节）

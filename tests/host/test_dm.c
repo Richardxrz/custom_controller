@@ -42,11 +42,18 @@ static void case_feedback(void) {
   DmFeedback fb;
   t_check(Dm_FeedbackDecode(&fb, &c, d), "解码成功");
   t_check(fb.id == 1 && fb.state == 0x11, "ID / 状态字节");
+  t_check(fb.ctrl_id == 1 && fb.err == 1, "D[0] 拆 ID=1 / ERR=1 使能");
+  t_check(strcmp(Dm_ErrName(fb.err), "enabled") == 0, "ERR 码转文字");
   t_check(fb.temp_mos == 27 && fb.temp_rotor == 25, "温度");
   t_check(fb.pos > 0.30f && fb.pos < 0.32f, "位置约 0.31 rad");
   t_check(fb.vel > -0.02f && fb.vel < 0.02f, "速度约 0");
   t_check(fb.torque > -0.1f && fb.torque < 0.1f, "力矩约 0");
 
+  d[0] = 0x18;
+  t_check(Dm_FeedbackDecode(&fb, &c, d) && fb.ctrl_id == 8 && fb.err == 1, "ID=8 / ERR=1");
+  d[0] = 0x0D;
+  t_check(Dm_FeedbackDecode(&fb, &c, d) && fb.err == 0 && fb.ctrl_id == 0x0D, "失能 / ID=13");
+  t_check(strcmp(Dm_ErrName(0x8), "overvoltage") == 0, "超压文字");
   t_check(!Dm_FeedbackDecode(NULL, &c, d), "空指针返回 false");
 }
 

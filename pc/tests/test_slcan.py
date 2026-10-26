@@ -60,6 +60,8 @@ class TestDm(unittest.TestCase):
         self.assertAlmostEqual(fb["vel"], 0.0, delta=0.01)
         self.assertAlmostEqual(fb["torque"], 0.0, delta=0.01)
         self.assertEqual(fb["state"], 0x11)
+        self.assertEqual((fb["ctrl_id"], fb["err"]), (1, 1))
+        self.assertEqual(dm_can.err_name(fb["err"]), "enabled")
         self.assertEqual((fb["temp_mos"], fb["temp_rotor"]), (27, 25))
         self.assertIsNone(dm_can.feedback_decode(cfg, data[:7]))
 

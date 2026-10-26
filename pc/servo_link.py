@@ -50,6 +50,10 @@ class ServoLink:
             return int(m.group(2))
         return None
 
+    def read_angle(self, sid: int) -> int | None:
+        """单次读一个轴（标定用，不推进轮询下标）。"""
+        return self._query(sid)
+
     def poll(self) -> list[rmproto.Frame]:
         """每调用一次只问一个轴；问完一圈返回一帧 0x0302。"""
         sid = self.ids[self.i]

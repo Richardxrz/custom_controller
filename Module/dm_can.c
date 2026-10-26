@@ -62,12 +62,29 @@ bool Dm_FeedbackDecode(DmFeedback *fb, const DmMotorCfg *cfg, const uint8_t data
 
   fb->id = cfg->id;
   fb->state = data[0];
+  fb->ctrl_id = (uint8_t)(data[0] & 0x0Fu);
+  fb->err = (uint8_t)(data[0] >> 4);
   fb->temp_mos = data[6];
   fb->temp_rotor = data[7];
   fb->pos = Dm_UintToFloat(p, cfg->p_min, cfg->p_max, 16u);
   fb->vel = Dm_UintToFloat(v, cfg->v_min, cfg->v_max, 12u);
   fb->torque = Dm_UintToFloat(t, cfg->t_min, cfg->t_max, 12u);
   return true;
+}
+
+const char *Dm_ErrName(uint8_t err) {
+  switch (err) {
+  case 0x0: return "disabled";
+  case 0x1: return "enabled";
+  case 0x8: return "overvoltage";
+  case 0x9: return "undervoltage";
+  case 0xA: return "overcurrent";
+  case 0xB: return "mos_overtemp";
+  case 0xC: return "coil_overtemp";
+  case 0xD: return "comm_lost";
+  case 0xE: return "overload";
+  default: return "unknown";
+  }
 }
 
 void Dm_SpecialFrame(uint8_t out[8], char kind) {

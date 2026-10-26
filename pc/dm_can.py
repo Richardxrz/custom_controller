@@ -57,12 +57,31 @@ def feedback_decode(cfg: MotorCfg, data: bytes) -> dict | None:
     return {
         "id": cfg.id,
         "state": data[0],
+        "ctrl_id": data[0] & 0x0F,
+        "err": data[0] >> 4,
         "temp_mos": data[6],
         "temp_rotor": data[7],
         "pos": uint_to_float(p, cfg.p_min, cfg.p_max, 16),
         "vel": uint_to_float(v, cfg.v_min, cfg.v_max, 12),
         "torque": uint_to_float(t, cfg.t_min, cfg.t_max, 12),
     }
+
+
+ERR_NAMES = {
+    0x0: "disabled",
+    0x1: "enabled",
+    0x8: "overvoltage",
+    0x9: "undervoltage",
+    0xA: "overcurrent",
+    0xB: "mos_overtemp",
+    0xC: "coil_overtemp",
+    0xD: "comm_lost",
+    0xE: "overload",
+}
+
+
+def err_name(err: int) -> str:
+    return ERR_NAMES.get(err, "unknown")
 
 
 def special(kind: str) -> bytes:

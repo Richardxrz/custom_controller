@@ -143,7 +143,7 @@ static void send_telemetry(void) {
       s_down.joint[i].pos_urad = (int32_t)(s_fb[i].pos * 1000000.0f);
       s_down.joint[i].vel_crad = (int16_t)(s_fb[i].vel * 100.0f);
       s_down.joint[i].torque_cnm = (int16_t)(s_fb[i].torque * 100.0f);
-      s_down.joint[i].err = s_fb[i].state;
+      s_down.joint[i].err = s_fb[i].err;
     }
     s_down.joint[i].temp_c = 0; /* 温度位域待手册核对，先不猜 */
   }
