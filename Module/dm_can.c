@@ -55,15 +55,15 @@ bool Dm_FeedbackDecode(DmFeedback *fb, const DmMotorCfg *cfg, const uint8_t data
   if (fb == NULL || cfg == NULL || data == NULL) {
     return false;
   }
-  if (data[0] != cfg->id) {
-    return false;
-  }
-  uint16_t p = (uint16_t)(((uint16_t)data[2] << 8) | data[3]);
-  uint16_t v = (uint16_t)(((uint16_t)data[4] << 8) | data[5]);
-  uint16_t t = (uint16_t)(((uint16_t)data[6] << 8) | data[7]);
+  /* 官方反馈：state | p(16) | v(12) | t(12) | Tmos | Trotor；电机 ID 在 CAN 帧 ID 上 */
+  uint16_t p = (uint16_t)(((uint16_t)data[1] << 8) | data[2]);
+  uint16_t v = (uint16_t)(((uint16_t)data[3] << 4) | (data[4] >> 4));
+  uint16_t t = (uint16_t)(((uint16_t)(data[4] & 0x0Fu) << 8) | data[5]);
 
-  fb->id = data[0];
-  fb->state = data[1];
+  fb->id = cfg->id;
+  fb->state = data[0];
+  fb->temp_mos = data[6];
+  fb->temp_rotor = data[7];
   fb->pos = Dm_UintToFloat(p, cfg->p_min, cfg->p_max, 16u);
   fb->vel = Dm_UintToFloat(v, cfg->v_min, cfg->v_max, 12u);
   fb->torque = Dm_UintToFloat(t, cfg->t_min, cfg->t_max, 12u);

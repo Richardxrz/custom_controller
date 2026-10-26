@@ -36,16 +36,18 @@ static void case_pack_max(void) {
 static void case_feedback(void) {
   printf("[反馈解包]\n");
   DmMotorCfg c = cfg4340();
-  uint8_t d[8] = {0x03, 0x21, 0x7F, 0xFF, 0x07, 0xFF, 0x07, 0xFF};
+  c.id = 1;
+  /* 真机反馈：state=0x11, p=0x8334, v=0x7FF, t=0x800, Tmos=27, Trotor=25 */
+  uint8_t d[8] = {0x11, 0x83, 0x34, 0x7F, 0xF8, 0x00, 0x1B, 0x19};
   DmFeedback fb;
-  t_check(Dm_FeedbackDecode(&fb, &c, d), "ID 匹配解码成功");
-  t_check(fb.id == 3 && fb.state == 0x21, "ID / 状态字节");
-  t_check(fb.pos > -0.01f && fb.pos < 0.01f, "位置约 0");
-  t_check(fb.vel > -0.05f && fb.vel < 0.05f, "速度约 0");
-  t_check(fb.torque > -0.02f && fb.torque < 0.02f, "力矩约 0");
+  t_check(Dm_FeedbackDecode(&fb, &c, d), "解码成功");
+  t_check(fb.id == 1 && fb.state == 0x11, "ID / 状态字节");
+  t_check(fb.temp_mos == 27 && fb.temp_rotor == 25, "温度");
+  t_check(fb.pos > 0.30f && fb.pos < 0.32f, "位置约 0.31 rad");
+  t_check(fb.vel > -0.02f && fb.vel < 0.02f, "速度约 0");
+  t_check(fb.torque > -0.1f && fb.torque < 0.1f, "力矩约 0");
 
-  d[0] = 4;
-  t_check(!Dm_FeedbackDecode(&fb, &c, d), "ID 不匹配返回 false");
+  t_check(!Dm_FeedbackDecode(NULL, &c, d), "空指针返回 false");
 }
 
 static void case_scale(void) {

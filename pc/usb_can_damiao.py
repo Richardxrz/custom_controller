@@ -170,7 +170,7 @@ def main() -> int:
 
             if mq is not None and now - last_telem >= 0.02:
                 last_telem = now
-                mq.publish_telemetry(payload.encode_downlink(_downlink(motor.fb)))
+                mq.publish_telemetry(_downlink(motor.fb))
 
             if now - last_print >= 0.5:
                 last_print = now
@@ -179,7 +179,7 @@ def main() -> int:
                     print(f"target={target:+.2f}  无反馈")
                 else:
                     print(f"target={target:+.2f}  pos={fb['pos']:+.3f}  "
-                          f"vel={fb['vel']:+.2f}  tau={fb['torque']:+.2f}  state={fb['state']:#04x}")
+                          f"vel={fb['vel']:+.2f}  tau={fb['torque']:+.2f}  T={fb['temp_mos']}/{fb['temp_rotor']}℃ state={fb['state']:#04x}")
     except KeyboardInterrupt:
         pass
     finally:

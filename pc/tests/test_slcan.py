@@ -52,12 +52,16 @@ class TestDm(unittest.TestCase):
         self.assertEqual(dm_can.mit_pack(cfg, 0, 0, 0, 0, 0).hex(), "7fff7ff0000007ff")
 
     def test_feedback(self):
-        cfg = dm_can.MotorCfg(id=3, t_min=-10, t_max=10)
-        data = bytes([3, 0x21, 0x7F, 0xFF, 0x07, 0xFF, 0x07, 0xFF])
+        cfg = dm_can.MotorCfg(id=1)
+        data = bytes([0x11, 0x83, 0x34, 0x7F, 0xF8, 0x00, 0x1B, 0x19])
         fb = dm_can.feedback_decode(cfg, data)
         self.assertIsNotNone(fb)
-        self.assertAlmostEqual(fb["pos"], 0.0, places=2)
-        self.assertEqual(dm_can.feedback_decode(cfg, bytes([4] + list(data[1:]))), None)
+        self.assertAlmostEqual(fb["pos"], 0.31, places=2)
+        self.assertAlmostEqual(fb["vel"], 0.0, delta=0.01)
+        self.assertAlmostEqual(fb["torque"], 0.0, delta=0.01)
+        self.assertEqual(fb["state"], 0x11)
+        self.assertEqual((fb["temp_mos"], fb["temp_rotor"]), (27, 25))
+        self.assertIsNone(dm_can.feedback_decode(cfg, data[:7]))
 
     def test_special(self):
         self.assertEqual(dm_can.special("enable")[-1], 0xFC)

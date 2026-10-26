@@ -39,10 +39,12 @@ typedef struct {
 
 typedef struct {
   uint8_t id;
-  uint8_t state; /* 原始状态字节；错误码/温度位域待手册核对 */
-  float pos;     /* rad */
-  float vel;     /* rad/s */
-  float torque;  /* N·m */
+  uint8_t state;      /* 反馈首字节：0x01 失能 / 0x11 使能 */
+  uint8_t temp_mos;   /* MOS 温度 ℃ */
+  uint8_t temp_rotor; /* 线圈温度 ℃ */
+  float pos;          /* rad */
+  float vel;          /* rad/s */
+  float torque;       /* N·m */
 } DmFeedback;
 
 /**

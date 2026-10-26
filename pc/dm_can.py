@@ -12,8 +12,8 @@ class MotorCfg:
     p_max: float = 12.5
     v_min: float = -30.0
     v_max: float = 30.0
-    t_min: float = -10.0
-    t_max: float = 10.0
+    t_min: float = -28.0
+    t_max: float = 28.0
 
 
 def float_to_uint(x: float, lo: float, hi: float, bits: int) -> int:
@@ -49,14 +49,16 @@ def mit_pack(cfg: MotorCfg, pos: float, vel: float, kp: float, kd: float, torque
 
 
 def feedback_decode(cfg: MotorCfg, data: bytes) -> dict | None:
-    if len(data) != 8 or data[0] != cfg.id:
+    if len(data) != 8:
         return None
-    p = (data[2] << 8) | data[3]
-    v = (data[4] << 8) | data[5]
-    t = (data[6] << 8) | data[7]
+    p = (data[1] << 8) | data[2]
+    v = (data[3] << 4) | (data[4] >> 4)
+    t = ((data[4] & 0x0F) << 8) | data[5]
     return {
-        "id": data[0],
-        "state": data[1],
+        "id": cfg.id,
+        "state": data[0],
+        "temp_mos": data[6],
+        "temp_rotor": data[7],
         "pos": uint_to_float(p, cfg.p_min, cfg.p_max, 16),
         "vel": uint_to_float(v, cfg.v_min, cfg.v_max, 12),
         "torque": uint_to_float(t, cfg.t_min, cfg.t_max, 12),

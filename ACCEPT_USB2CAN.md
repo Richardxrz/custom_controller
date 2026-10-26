@@ -60,7 +60,7 @@ PY
 ```bash
 python3 usb_can_damiao.py --transport dm_classic \
     --port /dev/tty.usbmodem00000000050C1 \
-    --test --id 1 --motor 4340 --kp 1 --kd 0.2 --range 0.3
+    --test --id 1 --kp 5 --kd 0.5 --range 0.3
 ```
 
 期望：电机正弦摆动，终端每 0.5 s 打印 `target/pos/vel/tau`。
@@ -78,11 +78,19 @@ python3 terminal_app.py --source servo --port /dev/tty.usbserial-YYYY \
 # 3) USB2CAN 桥
 python3 usb_can_damiao.py --transport dm_classic \
     --port /dev/tty.usbmodem00000000050C1 \
-    --mqtt --id 1 --motor 4340 --kp 1 --kd 0.2 \
+    --mqtt --id 1 --kp 5 --kd 0.5 \
     --mqtt-host 127.0.0.1 --mqtt-port 3333
 ```
 
 期望：手扳舵机，电机跟着动；终端 `down` 递增（遥测回传）。
+
+## 4.5 实测结论（2026-10-26）
+
+- 电机：DM4340，**CAN ID = 1**，反馈帧 CAN ID = `0x11`（master ID）；
+- 反馈格式（官方 SDK 为准）：`state | p(16) | v(12) | t(12) | Tmos | Trotor`，
+  `state` 0x01=失能、0x11=使能；`data[0]` **不是**电机 ID；
+- `kp=2` 太弱（0.2 rad 误差不动），**kp=5、kd=0.5** 能跟；
+- 已跑通：舵机（ID 5，746）→ PC → MQTT → USB2CAN → 电机（-1.110 rad）。
 
 ## 5. PID 说明
 
