@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import multi_servo_link  # noqa: E402
 import payload  # noqa: E402
+from terminal_app import parse_ports  # noqa: E402
 
 
 class FakeLink:
@@ -32,6 +33,16 @@ def wait(ml, want=None, timeout=2.0):
                 return up
         time.sleep(0.002)
     raise AssertionError("没有等到合并帧")
+
+
+class TestParsePorts(unittest.TestCase):
+    def test_two_buses(self):
+        self.assertEqual(parse_ports(["A:1,2,3", "B:4,5,6"]),
+                         [("A", [1, 2, 3]), ("B", [4, 5, 6])])
+
+    def test_bad_spec(self):
+        with self.assertRaises(ValueError):
+            parse_ports(["A"])
 
 
 class TestMultiServoLink(unittest.TestCase):

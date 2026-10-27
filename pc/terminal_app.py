@@ -14,8 +14,20 @@ import time
 import mqtt_link
 import payload
 import rmproto
+import multi_servo_link
 import serial_link
 import servo_link as servo_link_mod
+
+
+def parse_ports(specs: list[str]) -> list[tuple[str, list[int]]]:
+    """把 ["/dev/ttyA:1,2,3", "/dev/ttyB:4,5,6"] 解析成 [(port, ids)]。"""
+    out = []
+    for spec in specs:
+        port, sep, ids = spec.rpartition(":")
+        if not sep or not port or not ids:
+            raise ValueError(f"格式应为 端口:ID,ID：{spec}")
+        out.append((port, [int(x) for x in ids.split(",")]))
+    return out
 
 
 class SimLink:
@@ -90,16 +102,23 @@ def main() -> int:
     ap.add_argument("--mqtt-port", type=int, default=mqtt_link.default_config()["port"])
     ap.add_argument("--id", default="1", help="clientID = 机器人 ID")
     ap.add_argument("--ids", default="1,2,3,4,5,6")
+    ap.add_argument("--ports", nargs="+",
+                    help="多总线，如 /dev/ttyA:1,2,3 /dev/ttyB:4,5,6；仅 --source servo")
     ap.add_argument("--hz", type=float, default=75.0)
     ap.add_argument("--simulate", action="store_true", help="等价于 --source sim")
     ap.add_argument("--seconds", type=float, default=None)
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
+    if args.ports and args.source != "servo":
+        ap.error("--ports 只用于 --source servo")
 
     if args.simulate or args.source == "sim":
         link = SimLink()
     elif args.source == "servo":
-        link = servo_link_mod.ServoLink(args.port, [int(x) for x in args.ids.split(",")])
+        if args.ports:
+            link = multi_servo_link.MultiServoLink(parse_ports(args.ports))
+        else:
+            link = servo_link_mod.ServoLink(args.port, [int(x) for x in args.ids.split(",")])
     else:
         link = serial_link.SerialLink(args.port, args.baud)
     mq = mqtt_link.MqttLink(args.host, args.mqtt_port, args.id)
@@ -108,9 +127,13 @@ def main() -> int:
 
     if not mq.start():
         print(f"MQTT 连接失败: {mq.last_error}")
+        link.close()
         return 1
+    if hasattr(link, "start"):
+        link.start()
+    where = " ".join(args.ports) if args.ports else args.port
     print(f"已连接 {args.host}:{args.mqtt_port}，clientID={args.id}，"
-          f"{'模拟' if args.simulate else args.port}")
+          f"{'模拟' if args.simulate else where}")
     try:
         t0 = time.time()
         last_report = t0
