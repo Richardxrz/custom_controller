@@ -3,6 +3,7 @@
 三种数据源：
     --source master   主端 C 板：UART1 921600，读 0x0302 帧（30 B 载荷）
     --source servo    直连舵机：ZL 转接板 USB，轮询 6 个 ID 的 #IDPRAD!
+    --source servo --ports A:1,2,3 B:4,5,6   两条总线并行（3+3）
     --source sim      没硬件：正弦波
 
 用法：
@@ -30,6 +31,7 @@ except ImportError:
     sys.exit("缺少 pyserial：pip install pyserial")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import multi_servo_link  # noqa: E402
 import payload  # noqa: E402
 import rmproto  # noqa: E402
 
@@ -176,6 +178,29 @@ class ServoSource(threading.Thread):
         self.stop_flag = True
 
 
+class MultiSource(threading.Thread):
+    """多总线：MultiServoLink 已经并行轮询，这里只把 0x0302 帧喂给 State。"""
+
+    def __init__(self, ml, state: State):
+        super().__init__(daemon=True)
+        self.ml = ml
+        self.state = state
+        self.stop_flag = False
+
+    def run(self) -> None:
+        self.ml.start()
+        while not self.stop_flag:
+            for f in self.ml.poll():
+                up = payload.decode_uplink(f.data)
+                if up is not None:
+                    self.state.update(joints=up.joints, frame=True)
+            time.sleep(0.002)
+
+    def stop(self) -> None:
+        self.stop_flag = True
+        self.ml.close()
+
+
 class SimSource(threading.Thread):
     def __init__(self, state: State):
         super().__init__(daemon=True)
@@ -274,6 +299,8 @@ def main() -> int:
     ap.add_argument("--port")
     ap.add_argument("--baud", type=int)
     ap.add_argument("--ids", default="1,2,3,4,5,6")
+    ap.add_argument("--ports", nargs="+",
+                    help="多总线，如 /dev/ttyA:1,2,3 /dev/ttyB:4,5,6；仅 --source servo")
     ap.add_argument("--text", action="store_true", help="不弹窗，终端打印")
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--list", action="store_true", help="列出串口后退出")
@@ -281,6 +308,10 @@ def main() -> int:
     ap.add_argument("--mqtt-port", type=int, default=3333)
     ap.add_argument("--mqtt-id", default="1")
     args = ap.parse_args()
+
+    if args.ports and args.source != "servo":
+        print("--ports 只用于 --source servo")
+        return 1
 
     if args.list:
         for p in list_ports.comports():
@@ -291,11 +322,17 @@ def main() -> int:
     if args.source == "sim":
         src = SimSource(state)
     elif args.source == "servo":
-        if not args.port:
-            print("--source servo 需要 --port（ZL 转接板的 USB 串口）")
-            return 1
-        ids = [int(x) for x in args.ids.split(",")]
-        src = ServoSource(args.port, args.baud or 115200, ids, state)
+        if args.ports:
+            from terminal_app import parse_ports
+
+            ml = multi_servo_link.MultiServoLink(parse_ports(args.ports))
+            src = MultiSource(ml, state)
+        else:
+            if not args.port:
+                print("--source servo 需要 --port（ZL 转接板的 USB 串口）")
+                return 1
+            ids = [int(x) for x in args.ids.split(",")]
+            src = ServoSource(args.port, args.baud or 115200, ids, state)
     else:
         if not args.port:
             print("--source master 需要 --port（USB-TTL 的串口）")
