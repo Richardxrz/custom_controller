@@ -14,6 +14,14 @@ class TestJointMap(unittest.TestCase):
         self.assertAlmostEqual(m.to_joint(1500), 0.0)
         self.assertAlmostEqual(m.to_joint(2500), 1.5)
 
+    def test_360_mapping(self):
+        import math
+
+        m = JointMap(joint_min=-math.pi, joint_max=math.pi)
+        self.assertAlmostEqual(m.to_joint(500), -math.pi)
+        self.assertAlmostEqual(m.to_joint(1500), 0.0)
+        self.assertAlmostEqual(m.to_joint(2500), math.pi)
+
     def test_direction(self):
         m = JointMap(direction=-1)
         self.assertAlmostEqual(m.to_joint(500), 1.5)

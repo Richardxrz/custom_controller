@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import argparse
 import math
+import select
+import sys
+import termios
 import time
+import tty
 
 import dm_can
 import joint_map
@@ -97,8 +101,9 @@ def main() -> int:
     ap.add_argument("--map-json", help="calibrate.py 生成的 joint_map 配置")
     ap.add_argument("--prad-min", type=int, help="覆盖标定：PRAD 下限")
     ap.add_argument("--prad-max", type=int, help="覆盖标定：PRAD 上限")
-    ap.add_argument("--joint-min", type=float, default=-1.5)
-    ap.add_argument("--joint-max", type=float, default=1.5)
+    # 主端 270°（PRAD 500..2500）映射到关节 360°（-π..+π）
+    ap.add_argument("--joint-min", type=float, default=-math.pi)
+    ap.add_argument("--joint-max", type=float, default=math.pi)
     ap.add_argument("--dir", type=int, default=1, choices=[-1, 1])
     ap.add_argument("--wrap", action="store_true")
     args = ap.parse_args()
@@ -164,6 +169,19 @@ def main() -> int:
     last_print = t0
     last_telem = t0
 
+    interactive = sys.stdin.isatty()
+    old_term = None
+    if interactive:
+        old_term = termios.tcgetattr(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin.fileno())
+        print("Ctrl-C 退出；c = 离合开/关（保持/重对齐）")
+
+    def read_key() -> str:
+        if not interactive:
+            return ""
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        return sys.stdin.read(1) if r else ""
+
     print("控制中，Ctrl-C 退出（退出时会失能电机）")
     try:
         while args.seconds is None or time.time() - t0 < args.seconds:
@@ -173,6 +191,17 @@ def main() -> int:
                 continue
             next_t += dt
             motor.poll()
+
+            key = read_key()
+            if key in ("c", "C"):
+                if jm.clutch:
+                    jm.release(latest["pwm"])
+                    print("离合：松开（以当前位置重对齐）")
+                else:
+                    jm.engage(latest["pwm"])
+                    print("离合：保持")
+            elif key in ("q", "Q"):
+                break
 
             if args.test:
                 target = args.range * math.sin((now - t0) * 1.2)
@@ -201,6 +230,8 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if interactive and old_term is not None:
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old_term)
         motor.disable()
         bus.close()
         if mq is not None:
