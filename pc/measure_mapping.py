@@ -23,45 +23,25 @@ import dm_can
 
 
 def fit_gain(pairs: list[tuple[int, float]]) -> dict:
-    """最小二乘拟合一条直线：pos = a * prad + b。
-
-    为什么用最小二乘：
-        每个采样点 (p_i, q_i) 不会完美落在一条直线上（噪声、间隙、量化）。
-        我们要找一条直线，使所有点到它的「竖直距离平方和」最小：
-            S(a, b) = Σ (q_i - (a*p_i + b))²
-        对 a、b 分别求偏导并令其为 0，得到：
-            a = Σ(p_i - p̄)(q_i - q̄) / Σ(p_i - p̄)²
-            b = q̄ - a * p̄
-        这就是下面代码里 a、b 的来源；p̄、q̄ 是均值。
-
-    返回：
-        gain  —— 每 1 个 PRAD 计数对应多少 rad（例如 3 rad / 2000 计数 = 0.0015）
-        offset—— 截距，主要用于诊断（正常应接近 -gain*中心值）
-        rms   —— 残差均方根，越小说明「PRAD 与电机位置越接近线性」
-    """
+    """普通最小二乘（OLS）拟合 pos = a*prad + b，返回 gain/offset/rms。"""
     n = len(pairs)
-    if n < 2:  # 一个点连不成直线
+    if n < 2:
         return {"n": n}
 
-    mp = sum(p for p, _ in pairs) / n  # PRAD 均值 p̄
-    mq = sum(q for _, q in pairs) / n  # 位置均值 q̄
-
-    # 分母：Σ(p_i - p̄)²。这里没有除以 n，所以下面 a 的分子分母会约掉 n。
+    mp = sum(p for p, _ in pairs) / n
+    mq = sum(q for _, q in pairs) / n
     var = sum((p - mp) ** 2 for p, _ in pairs)
-    if var == 0:  # 所有 PRAD 相同，斜率无定义（舵机没动）
+    if var == 0:
         return {"n": n, "gain": 0.0, "offset": mq, "rms": 0.0}
 
-    # 分子：Σ(p_i - p̄)(q_i - q̄)。a = 协方差 / 方差。
     a = sum((p - mp) * (q - mq) for p, q in pairs) / var
-    b = mq - a * mp  # 直线必过均值点 (p̄, q̄)
-
-    # RMS：每个点与直线的偏差，单位是 rad。用来判断“线性假设”靠不靠谱。
+    b = mq - a * mp
     rms = (sum((q - (a * p + b)) ** 2 for p, q in pairs) / n) ** 0.5
     return {"n": n, "gain": a, "offset": b, "rms": rms}
 
 
 def analyze(rows: list[tuple[int, float]]) -> dict:
-    """对整段记录做统计：PRAD 范围、电机范围、回绕次数、线性拟合。"""
+    """统计 PRAD/位置范围、回绕次数并拟合；回绕判据：相邻差 > 半程。"""
     if not rows:
         return {"n": 0}
 
@@ -69,8 +49,6 @@ def analyze(rows: list[tuple[int, float]]) -> dict:
     poss = [q for _, q in rows]
     span = max(prads) - min(prads)
 
-    # 回绕检测：相邻两点 PRAD 跳变超过半程，就认为跨过了 0/最大值的边界。
-    # pairwise(prads) 等价于 zip(prads, prads[1:])，但不会复制一份切片。
     wraps = sum(
         1
         for a, b in pairwise(prads)
@@ -107,16 +85,14 @@ def run(
         motor = dm_can.MotorCfg(id=motor_id)
 
     rows: list[tuple[int, float]] = []
-    pos = 0.0  # 没有 --can-port 时 pos 恒为 0
+    pos = 0.0  # 无 CAN 时恒为 0
     t0 = time.time()
     try:
         while time.time() - t0 < seconds:
             raw = link.read_angle(servo_id)
 
             if bus is not None:
-                # Pyright 报错点：motor 的类型是 MotorCfg | None，这里断言非空，
-                # 之后 feedback_decode 的参数类型才能通过检查（类型收窄）。
-                assert motor is not None
+                assert motor is not None  # 类型收窄
                 for f in bus.recv():
                     if f["cmd"] == 0x11:
                         fb = dm_can.feedback_decode(motor, f["data"])
@@ -148,11 +124,8 @@ def main() -> int:
     )
 
     if args.out:
-        # with 是「上下文管理器」：进入时打开文件，离开时（包括异常）自动 close。
-        # 等价于 try/finally，但不会忘记关闭。encoding 明确写 utf-8，避免中文环境乱码。
         with open(args.out, "w", encoding="utf-8") as f:
             f.write("t,prad,pos\n")
-            # enumerate 同时给「下标 i」和「元素 (p, q)」；i 用来当时间列。
             for i, (p, q) in enumerate(rows):
                 f.write(f"{i},{p},{q:.6f}\n")
 
