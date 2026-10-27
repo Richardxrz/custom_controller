@@ -51,7 +51,7 @@
 
 ```bash
 ./scripts/build_fw.sh          # 主端 + 机器人端，输出 build/{master,arm}/stm32_module_lab.elf
-./scripts/test_all.sh          # 92 条 C 判据 + 15 个 Python 用例
+./scripts/test_all.sh          # 98 条 C 判据 + 36 个 Python 用例
 ```
 
 烧录（示例）：
