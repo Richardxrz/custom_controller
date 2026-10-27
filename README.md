@@ -8,21 +8,16 @@
 
 | 形态 | 链路 | 什么时候用 |
 |---|---|---|
-| **PC 直连（推荐先做）** | ZP10S×6 ─单总线─ ZL 转接板 ─USB─ PC（轮询 + MQTT） | 少一块板、少一根线、少一层固件；终端本来就是 PC |
-| C 板中转（可选） | 舵机 ─ C 板 UART6 ─ UART1 ─ USB-TTL ─ PC | 需要确定性采样（不受 PC 调度影响）或硬件急停时 |
+| **PC 直连（已采用）** | ZP10S×6 ─单总线×2（3+3）─ ZL 转接板×2 ─USB─ PC（轮询 + MQTT） | 操作端不加 C 板；单总线 27 Hz，双总线约 55 Hz（代码待支持） |
+| C 板中转（不采用，仅备选） | 舵机 ─ C 板 UART6 ─ UART1 ─ USB-TTL ─ PC | 已验证无频率收益；只作为回退 |
 
-两者对上层完全一样：PC 都拿到 30 B，再 publish `CustomControl`。
-`terminal_app.py --source servo` 是直连，`--source master` 是 C 板中转。
+PC 直连是当前方案：`terminal_app.py --source servo`；`--source master` 仅作 C 板备选。
 
 ## 数据流
 
 ```
 主端（操作间）
-  ZP10S×6（释力）──单总线──ZL 转接板──UART6 115200──C 板(主端)
-                                                     │
-                                            UART1 921600（USB-TTL 到 PC）
-                                                     ▼
-                                              终端 PC（本仓库 pc/）
+  ZP10S×6（释力）──单总线×2（3+3）──ZL 转接板×2──USB──▶ 终端 PC（本仓库 pc/）
                                                      │ MQTT 192.168.12.1:3333
                                                      │  CustomControl(30 B) @75 Hz
                                                赛事引擎 / 图传
@@ -61,15 +56,17 @@ pyocd flash -t stm32f407ighx build/master/stm32_module_lab.elf   # 主端
 pyocd flash -t stm32f407ighx build/arm/stm32_module_lab.elf      # 机器人端
 ```
 
+> PC 直连不需要烧主端固件；`build/master` 只在 C 板备选方案使用。
+
 ## 接线
 
-**主端 C 板**
+**主端（PC 直连）**
 
-| 用途 | 引脚/接口 | 说明 |
+| 用途 | 接口 | 说明 |
 |---|---|---|
-| 舵机总线 | USART6（PG14/PG9，3-pin） | 115200，经 ZL 单线转双线板；**与 USB 二选一** |
-| PC 链路 | USART1（PA9/PB7，4-pin） | 921600，需 USB-TTL（CH340/CP2102）；**不接 5V** |
-| 急停 | KEY（PA0） | 按下 = 急停位（`buttons.bit2`） |
+| 舵机总线 | ZL 转接板×2（USB） | 6 轴拆 3+3；每块板 115200 |
+| PC | USB-A / USB-C | 两块板各占一个 USB 口；建议带供电 Hub |
+| 急停 | 软件（PC 键盘） | 无硬件急停；C 板备选方案才有 KEY（PA0） |
 
 **机器人端 C 板**
 
