@@ -24,6 +24,7 @@ import time
 import tty
 
 import dm_can
+import filters
 import joint_map
 import payload
 import slcan
@@ -106,6 +107,9 @@ def main() -> int:
     ap.add_argument("--joint-max", type=float, default=math.pi)
     ap.add_argument("--dir", type=int, default=1, choices=[-1, 1])
     ap.add_argument("--wrap", action="store_true")
+    ap.add_argument("--filter", action="store_true", help="对 PRAD 做 Hampel + One-Euro")
+    ap.add_argument("--filter-cutoff", type=float, default=2.5)
+    ap.add_argument("--filter-beta", type=float, default=0.7)
     args = ap.parse_args()
 
     if args.dry_run:
@@ -149,18 +153,35 @@ def main() -> int:
         jm.prad_max = args.prad_max
 
     latest = {"pwm": 1500}
+    fc = filters.FilterChain(min_cutoff=args.filter_cutoff, beta=args.filter_beta) if args.filter else None
+    flt = {"last_raw": None, "t": None, "out": 1500.0}
+
+    def on_control(data: bytes) -> None:
+        raw = _up0(data)
+        if fc is None:
+            latest["pwm"] = raw
+            return
+        if raw != flt["last_raw"]:
+            now = time.monotonic()
+            dt = 0.0 if flt["t"] is None else now - flt["t"]
+            flt["t"] = now
+            flt["last_raw"] = raw
+            flt["out"] = fc.update(raw, max(dt, 1e-3))
+        latest["pwm"] = flt["out"]
+
     mq = None
     if args.mqtt:
         import mqtt_link
 
         mq = mqtt_link.MqttLink(args.mqtt_host, args.mqtt_port, args.client_id)
-        mq.subscribe(mqtt_link.TOPIC_CONTROL, lambda d: latest.update(pwm=_up0(d)))
+        mq.subscribe(mqtt_link.TOPIC_CONTROL, on_control)
         if not mq.start():
             print("MQTT 连接失败", mq.last_error)
             motor.disable()
             bus.close()
             return 1
-        print(f"MQTT {args.mqtt_host}:{args.mqtt_port} 已连接")
+        print(f"MQTT {args.mqtt_host}:{args.mqtt_port} 已连接"
+              + (f"；滤波 cutoff={args.filter_cutoff}Hz beta={args.filter_beta}" if fc else ""))
 
     pid = Pid(args.pid_kp, args.pid_ki, args.pid_kd, args.torque_limit)
     dt = 1.0 / args.hz
