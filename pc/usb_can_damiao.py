@@ -272,6 +272,7 @@ def _downlink(fb) -> bytes:
         d.joint[0].vel_crad = int(fb["vel"] * 100)
         d.joint[0].torque_cnm = int(fb["torque"] * 100)
         d.joint[0].err = fb["state"]
+        d.joint[0].temp_c = fb["temp_mos"]
     return payload.encode_downlink(d)
 
 
