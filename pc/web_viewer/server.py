@@ -126,7 +126,9 @@ def find_urdf(model_dir: str) -> str:
 def main() -> int:
     global MODEL_DIR, URDF_REL
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=os.path.join(WEB_DIR, "models", "demo"))
+    rebot_model = os.path.join(WEB_DIR, "models", "rebot")
+    demo = os.path.join(WEB_DIR, "models", "demo")
+    ap.add_argument("--model", default=rebot_model if os.path.isdir(rebot_model) else demo)
     ap.add_argument("--urdf")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--open", action="store_true")

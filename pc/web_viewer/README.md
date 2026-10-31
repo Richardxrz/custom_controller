@@ -3,7 +3,9 @@
 一个本地网页查看器：拖拽旋转、右键平移、滚轮缩放，按 URDF 的关节树摆姿态。
 不依赖 ROS，不依赖 npm 构建；three.js / URDFLoader / OrbitControls 已放在 `lib/`。
 
-## 快速开始（自带 demo）
+## 快速开始
+
+实例模型已换成 **reBot Arm B601-DM**（6 轴、STL）：
 
 ```bash
 cd pc/web_viewer
@@ -11,7 +13,16 @@ python3 server.py --open
 # 或双击 run_viewer.command
 ```
 
-demo 是 6 轴简化臂（box/cylinder，无外部 mesh），用于确认页面和交互正常。
+模型来自 B601 的 `description/`，只保留每个 link 的主 STL（8 个，约 20 MB），
+不是仓库提交内容；`models/rebot/` 已在 `models/.gitignore` 中忽略。
+
+新 clone 后若没有该目录，先运行：
+
+```bash
+python3 tools/fetch_rebot.py
+```
+
+没有 reBot 目录时会自动回退到 `models/demo`（简化 box/cylinder 臂）。
 
 ## 接真实模型
 
@@ -55,6 +66,7 @@ curl -X POST -H 'Content-Type: application/json' \
 
 B601 模型来源：<https://github.com/Yang-Ci/ReBot_Arm_DigitalTwin_DM>，
 CERN-OHL-W-2.0；本仓库不包含它的 STL，只保留截图。
+`models/rebot/` 由 `tools/fetch_rebot.py` 本地生成，不提交。
 
 ## 已知限制
 

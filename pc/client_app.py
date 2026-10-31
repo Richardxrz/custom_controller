@@ -33,7 +33,9 @@ from mock_broker import MockBroker
 from usb_can_damiao import Damiao
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WEB_MODEL = os.path.join(HERE, "web_viewer", "models", "demo")
+_REBOT = os.path.join(HERE, "web_viewer", "models", "rebot")
+_DEMO = os.path.join(HERE, "web_viewer", "models", "demo")
+WEB_MODEL = _REBOT if os.path.isdir(_REBOT) else _DEMO
 
 
 class State:
