@@ -167,6 +167,7 @@ class ClientApp:
         self.worker = None
         self.motor_worker = None
         self.broker = None
+        self.sim = None
         root.title("自定义客户端 · 上位机")
         root.geometry("960x720")
         root.configure(bg="#141414")
@@ -217,6 +218,7 @@ class ClientApp:
 
         self.btn = tk.Button(cfg, text="连接", command=self.toggle)
         self.btn.grid(row=1, column=2, padx=8)
+        tk.Button(cfg, text="仿真", command=self.open_sim).grid(row=0, column=6, padx=8)
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
         self.status.pack(fill="x", padx=12)
@@ -259,6 +261,18 @@ class ClientApp:
     def _say(self, s: str):
         self.log.insert("end", s + "\n")
         self.log.see("end")
+
+    def open_sim(self):
+        if self.sim is not None:
+            try:
+                self.sim.win.deiconify()
+                self.sim.win.lift()
+                return
+            except Exception:  # noqa: BLE001
+                self.sim = None
+        from arm_sim import ArmView
+
+        self.sim = ArmView(self.root, self.state)
 
     def toggle(self):
         if self.mq is not None:
@@ -351,11 +365,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--auto", action="store_true")
     ap.add_argument("--seconds", type=float)
+    ap.add_argument("--sim", action="store_true")
     args = ap.parse_args()
     root = tk.Tk()
     app = ClientApp(root)
     if args.auto:
         root.after(300, app.connect)
+    if args.sim:
+        root.after(200, app.open_sim)
     if args.seconds:
         root.after(int(args.seconds * 1000), app.quit)
     root.mainloop()
