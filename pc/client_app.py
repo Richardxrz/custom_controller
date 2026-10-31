@@ -12,9 +12,15 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import subprocess
+import sys
 import threading
 import time
+import urllib.request
+import webbrowser
 
 import dm_can
 import joint_map
@@ -25,6 +31,9 @@ import usb2can_classic
 from multi_servo_link import MultiServoLink
 from mock_broker import MockBroker
 from usb_can_damiao import Damiao
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+WEB_MODEL = os.path.join(HERE, "web_viewer", "models", "demo")
 
 
 class State:
@@ -168,6 +177,9 @@ class ClientApp:
         self.motor_worker = None
         self.broker = None
         self.sim = None
+        self.viewer_proc = None
+        self.viewer_stop = threading.Event()
+        self.viewer_poster = None
         root.title("自定义客户端 · 上位机")
         root.geometry("960x720")
         root.configure(bg="#141414")
@@ -218,7 +230,12 @@ class ClientApp:
 
         self.btn = tk.Button(cfg, text="连接", command=self.toggle)
         self.btn.grid(row=1, column=2, padx=8)
-        tk.Button(cfg, text="仿真", command=self.open_sim).grid(row=0, column=6, padx=8)
+        tk.Button(cfg, text="2D 仿真", command=self.open_sim).grid(row=0, column=6, padx=8)
+        tk.Label(cfg, text="3D 模型", fg="#bbb", bg="#141414").grid(row=4, column=0, pady=4)
+        self.model_path = tk.Entry(cfg, width=34)
+        self.model_path.insert(0, WEB_MODEL)
+        self.model_path.grid(row=4, column=1, columnspan=2, sticky="w")
+        tk.Button(cfg, text="3D 仿真", command=self.open_web_sim).grid(row=4, column=2, padx=8)
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
         self.status.pack(fill="x", padx=12)
@@ -273,6 +290,39 @@ class ClientApp:
         from arm_sim import ArmView
 
         self.sim = ArmView(self.root, self.state)
+
+    def open_web_sim(self):
+        model = self.model_path.get().strip() or WEB_MODEL
+        if not os.path.isabs(model):
+            model = os.path.join(HERE, model)
+        if self.viewer_proc is None:
+            try:
+                self.viewer_proc = subprocess.Popen(
+                    [sys.executable, "-u", os.path.join(HERE, "web_viewer", "server.py"),
+                     "--model", model, "--port", "8765"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                time.sleep(0.8)
+            except Exception as exc:  # noqa: BLE001
+                self._say(f"3D 服务启动失败: {exc}")
+        webbrowser.open("http://127.0.0.1:8765/?follow=1")
+        self._say(f"3D 仿真: {model}")
+        if self.viewer_poster is None:
+            self.viewer_stop.clear()
+            self.viewer_poster = threading.Thread(target=self._post_angles, daemon=True)
+            self.viewer_poster.start()
+
+    def _post_angles(self):
+        while not self.viewer_stop.is_set():
+            with self.state.lock:
+                vals = list(self.state.target)
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8765/angles", data=json.dumps(vals).encode(),
+                    headers={"Content-Type": "application/json"}, method="POST")
+                urllib.request.urlopen(req, timeout=0.25).read()
+            except Exception:  # noqa: BLE001
+                pass
+            self.viewer_stop.wait(0.1)
 
     def toggle(self):
         if self.mq is not None:
@@ -354,6 +404,14 @@ class ClientApp:
         self.root.after(50, self.tick)
 
     def quit(self):
+        self.viewer_stop.set()
+        if self.viewer_proc is not None:
+            self.viewer_proc.terminate()
+            try:
+                self.viewer_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.viewer_proc.kill()
+            self.viewer_proc = None
         self.disconnect()
         self.root.destroy()
 
@@ -366,6 +424,7 @@ def main() -> int:
     ap.add_argument("--auto", action="store_true")
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--sim", action="store_true")
+    ap.add_argument("--web-sim", action="store_true")
     args = ap.parse_args()
     root = tk.Tk()
     app = ClientApp(root)
@@ -373,6 +432,8 @@ def main() -> int:
         root.after(300, app.connect)
     if args.sim:
         root.after(200, app.open_sim)
+    if args.web_sim:
+        root.after(200, app.open_web_sim)
     if args.seconds:
         root.after(int(args.seconds * 1000), app.quit)
     root.mainloop()
