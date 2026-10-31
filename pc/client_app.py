@@ -16,12 +16,15 @@ import math
 import threading
 import time
 
+import dm_can
 import joint_map
 import mqtt_link
 import payload
 import servo_link as servo_link_mod
+import usb2can_classic
 from multi_servo_link import MultiServoLink
 from mock_broker import MockBroker
+from usb_can_damiao import Damiao
 
 
 class State:
@@ -34,6 +37,8 @@ class State:
         self.temp = [0] * 6
         self.pub = 0
         self.down = 0
+        self.direct = False
+        self.servo_seen = False
         self.err = ""
 
     def on_control(self, data: bytes):
@@ -44,8 +49,11 @@ class State:
             self.servo = list(up.joints)
             self.target = [joint_map.JointMap().to_joint(j) for j in up.joints]
             self.pub += 1
+            self.servo_seen = True
 
     def on_telemetry(self, data: bytes):
+        if self.direct:
+            return
         d = payload.decode_downlink(data)
         if d is None:
             return
@@ -54,6 +62,12 @@ class State:
             self.tau = [j.torque_cnm / 100 for j in d.joint]
             self.temp = [j.temp_c for j in d.joint]
             self.down += 1
+
+    def on_motor(self, fb):
+        with self.lock:
+            self.actual[0] = fb["pos"]
+            self.tau[0] = fb["torque"]
+            self.temp[0] = fb["temp_mos"]
 
     def snapshot(self):
         with self.lock:
@@ -89,6 +103,59 @@ class ServoWorker(threading.Thread):
         self.join(timeout=1.0)
 
 
+class MotorWorker(threading.Thread):
+    """台架直连：把舵机 J0 的 360° 目标直接发给 USB2CAN 电机。"""
+
+    def __init__(self, state, port, mid, kp, kd):
+        super().__init__(daemon=True)
+        self.state, self.port, self.mid = state, port, mid
+        self.kp, self.kd = kp, kd
+        self.stop_flag = False
+
+    def run(self):
+        bus = None
+        motor = None
+        try:
+            bus = usb2can_classic.Usb2CanClassic(self.port, 921600)
+            bus.open(1_000_000)
+            motor = Damiao(bus, dm_can.MotorCfg(id=self.mid))
+            motor.disable()
+            time.sleep(0.05)
+            motor.command(0, 0, 0, 0, 0)
+            t0 = time.time()
+            while motor.fb is None and time.time() - t0 < 1:
+                motor.poll()
+                time.sleep(0.01)
+            motor.enable()
+            while not self.stop_flag:
+                if not self.state.servo_seen:
+                    if motor.fb is not None:
+                        motor.command(motor.fb["pos"], 0, 0, 0, 0)
+                    motor.poll()
+                    time.sleep(0.01)
+                    continue
+                with self.state.lock:
+                    raw = self.state.servo[0]
+                target = joint_map.JointMap().to_joint(raw)
+                motor.command(target, 0, self.kp, self.kd, 0)
+                motor.poll()
+                if motor.fb is not None:
+                    self.state.on_motor(motor.fb)
+                time.sleep(0.005)
+        except Exception as exc:  # noqa: BLE001
+            with self.state.lock:
+                self.state.err = f"电机失败: {exc}"
+        finally:
+            if motor is not None:
+                motor.disable()
+            if bus is not None:
+                bus.close()
+
+    def stop(self):
+        self.stop_flag = True
+        self.join(timeout=1.0)
+
+
 class ClientApp:
     def __init__(self, root):
         import tkinter as tk
@@ -98,6 +165,7 @@ class ClientApp:
         self.state = State()
         self.mq = None
         self.worker = None
+        self.motor_worker = None
         self.broker = None
         root.title("自定义客户端 · 上位机")
         root.geometry("960x720")
@@ -127,6 +195,25 @@ class ClientApp:
         tk.Label(cfg, text="舵机 B（可空）", fg="#bbb", bg="#141414").grid(row=2, column=0)
         self.port_b = tk.Entry(cfg, width=34)
         self.port_b.grid(row=2, column=1, columnspan=2, sticky="w")
+
+        self.direct_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(cfg, text="直连电机(台架)", variable=self.direct_var,
+                       fg="#bbb", bg="#141414", selectcolor="#333").grid(row=3, column=0, pady=4)
+        self.can_port = tk.Entry(cfg, width=34)
+        self.can_port.insert(0, "/dev/tty.usbmodem00000000050C1")
+        self.can_port.grid(row=3, column=1, columnspan=2, sticky="w")
+        tk.Label(cfg, text="ID", fg="#bbb", bg="#141414").grid(row=3, column=2, sticky="e")
+        self.motor_id = tk.Entry(cfg, width=4)
+        self.motor_id.insert(0, "8")
+        self.motor_id.grid(row=3, column=3)
+        tk.Label(cfg, text="Kp", fg="#bbb", bg="#141414").grid(row=3, column=4)
+        self.kp = tk.Entry(cfg, width=5)
+        self.kp.insert(0, "5")
+        self.kp.grid(row=3, column=5)
+        tk.Label(cfg, text="Kd", fg="#bbb", bg="#141414").grid(row=3, column=6)
+        self.kd = tk.Entry(cfg, width=5)
+        self.kd.insert(0, "0.5")
+        self.kd.grid(row=3, column=7)
 
         self.btn = tk.Button(cfg, text="连接", command=self.toggle)
         self.btn.grid(row=1, column=2, padx=8)
@@ -199,13 +286,30 @@ class ClientApp:
             if s:
                 p, _, ids = s.rpartition(":")
                 specs.append((p, [int(x) for x in ids.split(",")]))
-        link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
+        try:
+            link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
+        except Exception as exc:  # noqa: BLE001
+            self._say(f"舵机打开失败：{exc}")
+            self.mq.stop(); self.mq = None
+            if self.broker is not None:
+                self.broker.close(); self.broker = None
+            return
         self.worker = ServoWorker(link, self.mq, self.state)
         self.worker.start()
+        self.state.direct = self.direct_var.get()
+        if self.direct_var.get():
+            self.motor_worker = MotorWorker(self.state, self.can_port.get().strip(),
+                                            int(self.motor_id.get()), float(self.kp.get()),
+                                            float(self.kd.get()))
+            self.motor_worker.start()
         self.btn.configure(text="断开")
         self._say(f"已连接 {host}:{port}，舵机 {specs}")
 
     def disconnect(self):
+        if self.motor_worker is not None:
+            self.motor_worker.stop()
+            self.motor_worker = None
+        self.state.direct = False
         if self.worker is not None:
             self.worker.stop()
             self.worker = None
