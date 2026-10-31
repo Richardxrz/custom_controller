@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>URDF 查看器 · 6 轴机械臂</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="view"></div>
+<div id="hud">
+  <b>URDF 查看器</b>
+  <span id="model">加载中…</span>
+  <span class="hint">左键旋转 · 右键平移 · 滚轮缩放</span>
+</div>
+<aside id="panel">
+  <h3>关节</h3>
+  <label class="follow"><input type="checkbox" id="follow"> 跟随客户端角度</label>
+  <div id="joints"></div>
+  <button id="reset">重置视角</button>
+  <p class="note">角度单位：rad；滑条显示为度。</p>
+</aside>
+<div id="loading">加载模型…</div>
+<script src="/lib/three-r128.min.js"></script>
+<script src="/lib/STLLoader-umd.js"></script>
+<script src="/lib/ColladaLoader.js"></script>
+<script src="/lib/URDFLoader.js"></script>
+<script src="/lib/OrbitControls.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
