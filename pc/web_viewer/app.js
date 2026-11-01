@@ -16,16 +16,14 @@ window.addEventListener('unhandledrejection', (e) => {
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0e1116);
-scene.fog = new THREE.Fog(0x0e1116, 6, 18);
 
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100);
 camera.position.set(1.8, 1.4, 2.0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputEncoding = THREE.sRGBEncoding;
-renderer.shadowMap.enabled = true;
 view.appendChild(renderer.domElement);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -35,15 +33,8 @@ controls.screenSpacePanning = true;
 controls.target.set(0, 0.5, 0);
 controls.update();
 
-scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x1b232a, 1.1));
-const key = new THREE.DirectionalLight(0xffffff, 1.15);
-key.position.set(3, 5, 4);
-key.castShadow = true;
-key.shadow.mapSize.set(1024, 1024);
-scene.add(key);
-const fill = new THREE.DirectionalLight(0x88aacc, 0.55);
-fill.position.set(-4, 2, -3);
-scene.add(fill);
+// 均匀环境光：不计算方向光/阴影，接近建模软件的平光视图。
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 
 const grid = new THREE.GridHelper(6, 60, 0x2d404b, 0x1a252d);
 scene.add(grid);
@@ -136,10 +127,8 @@ function styleRobot() {
   if (!robot) return;
   robot.traverse((child) => {
     if (!child.isMesh) return;
-    child.castShadow = true;
-    child.receiveShadow = true;
-    child.material = new THREE.MeshStandardMaterial({
-      color: colorOf(child), metalness: 0.35, roughness: 0.42, side: THREE.DoubleSide,
+    child.material = new THREE.MeshLambertMaterial({
+      color: colorOf(child), side: THREE.DoubleSide,
     });
   });
 }
@@ -168,11 +157,6 @@ function loadModel() {
   };
   loader.load('/model/urdf', (loaded) => {
     robot = loaded;
-    robot.traverse((child) => {
-      if (!child.isMesh) return;
-      child.castShadow = true;
-      child.receiveShadow = true;
-    });
     robotFrame.add(robot);
     joints = Object.values(robot.joints || {})
       .filter((j) => j.jointType !== 'fixed')
