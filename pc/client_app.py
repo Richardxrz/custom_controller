@@ -53,6 +53,7 @@ class State:
         self.servo_seen = False
         self.active_channels = list(range(6))
         self.channel_to_joint = list(range(6))
+        self.joint_limit = math.pi
         self.err = ""
 
     def on_control(self, data: bytes):
@@ -62,7 +63,7 @@ class State:
         with self.lock:
             self.servo = list(up.joints)
             targets = [0.0] * 6
-            jm = joint_map.JointMap(joint_min=-math.pi, joint_max=math.pi)
+            jm = joint_map.JointMap(joint_min=-self.joint_limit, joint_max=self.joint_limit)
             for i, raw in enumerate(up.joints):
                 if i not in self.active_channels:
                     continue
@@ -162,7 +163,7 @@ class MotorWorker(threading.Thread):
                     continue
                 with self.state.lock:
                     raw = self.state.servo[0]
-                target = joint_map.JointMap(joint_min=-math.pi, joint_max=math.pi).to_joint(raw)
+                target = joint_map.JointMap(joint_min=-self.state.joint_limit, joint_max=self.state.joint_limit).to_joint(raw)
                 motor.command(target, 0, self.kp, self.kd, 0)
                 motor.poll()
                 if motor.fb is not None:
@@ -257,6 +258,10 @@ class ClientApp:
         self.joint_var = tk.StringVar(value="J0")
         tk.OptionMenu(cfg, self.joint_var, *[f"J{i}" for i in range(6)],
                       command=self.set_joint_map).grid(row=5, column=1, sticky="w")
+        tk.Label(cfg, text="关节范围", fg="#bbb", bg="#141414").grid(row=6, column=0, pady=4)
+        self.range_var = tk.StringVar(value="360°")
+        tk.OptionMenu(cfg, self.range_var, "270°", "360°",
+                      command=self.set_joint_range).grid(row=6, column=1, sticky="w")
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
         self.status.pack(fill="x", padx=12)
@@ -344,6 +349,12 @@ class ClientApp:
             except Exception:  # noqa: BLE001
                 pass
             self.viewer_stop.wait(0.1)
+
+    def set_joint_range(self, value=None):
+        deg = 270 if (value or self.range_var.get()).startswith("270") else 360
+        self.state.joint_limit = math.radians(deg / 2)
+        with self.state.lock:
+            self.state.target = [0.0] * 6
 
     def set_joint_map(self, _=None):
         j = int(self.joint_var.get()[1:])
