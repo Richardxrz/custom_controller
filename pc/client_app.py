@@ -51,6 +51,8 @@ class State:
         self.game = 0
         self.direct = False
         self.servo_seen = False
+        self.active_channels = list(range(6))
+        self.channel_to_joint = list(range(6))
         self.err = ""
 
     def on_control(self, data: bytes):
@@ -59,7 +61,15 @@ class State:
             return
         with self.lock:
             self.servo = list(up.joints)
-            self.target = [joint_map.JointMap().to_joint(j) for j in up.joints]
+            targets = [0.0] * 6
+            jm = joint_map.JointMap(joint_min=-math.pi, joint_max=math.pi)
+            for i, raw in enumerate(up.joints):
+                if i not in self.active_channels:
+                    continue
+                j = self.channel_to_joint[i] if i < 6 else i
+                if 0 <= j < 6:
+                    targets[j] = jm.to_joint(raw)
+            self.target = targets
             self.pub += 1
             self.servo_seen = True
 
@@ -152,7 +162,7 @@ class MotorWorker(threading.Thread):
                     continue
                 with self.state.lock:
                     raw = self.state.servo[0]
-                target = joint_map.JointMap().to_joint(raw)
+                target = joint_map.JointMap(joint_min=-math.pi, joint_max=math.pi).to_joint(raw)
                 motor.command(target, 0, self.kp, self.kd, 0)
                 motor.poll()
                 if motor.fb is not None:
@@ -243,6 +253,10 @@ class ClientApp:
         self.model_path.insert(0, WEB_MODEL)
         self.model_path.grid(row=4, column=1, columnspan=2, sticky="w")
         tk.Button(cfg, text="3D 仿真", command=self.open_web_sim).grid(row=4, column=2, padx=8)
+        tk.Label(cfg, text="单舵机→关节", fg="#bbb", bg="#141414").grid(row=5, column=0, pady=4)
+        self.joint_var = tk.StringVar(value="J0")
+        tk.OptionMenu(cfg, self.joint_var, *[f"J{i}" for i in range(6)],
+                      command=self.set_joint_map).grid(row=5, column=1, sticky="w")
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
         self.status.pack(fill="x", padx=12)
@@ -331,6 +345,12 @@ class ClientApp:
                 pass
             self.viewer_stop.wait(0.1)
 
+    def set_joint_map(self, _=None):
+        j = int(self.joint_var.get()[1:])
+        with self.state.lock:
+            self.state.channel_to_joint[0] = j
+            self.state.target = [0.0] * 6
+
     def toggle(self):
         if self.mq is not None:
             self.disconnect()
@@ -358,6 +378,13 @@ class ClientApp:
             if s:
                 p, _, ids = s.rpartition(":")
                 specs.append((p, [int(x) for x in ids.split(",")]))
+        total_ids = sum(len(ids) for _, ids in specs)
+        with self.state.lock:
+            self.state.active_channels = list(range(total_ids))
+            self.state.channel_to_joint = list(range(6))
+            if total_ids == 1:
+                self.state.channel_to_joint[0] = int(self.joint_var.get()[1:])
+            self.state.target = [0.0] * 6
         link = None
         if not specs:
             self._say("未配置舵机：仅 MQTT 模式")
