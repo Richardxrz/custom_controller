@@ -90,7 +90,10 @@ class MqttLink:
         cb = self.handlers.get(msg.topic)
         if cb is None:
             return
-        data = pb_parse_bytes(msg.payload, 1)
+        if msg.topic == "GameStatus":
+            data = msg.payload
+        else:
+            data = pb_parse_bytes(msg.payload, 1)
         if data is None:
             return
         self.received += 1

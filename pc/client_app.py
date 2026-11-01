@@ -48,6 +48,7 @@ class State:
         self.temp = [0] * 6
         self.pub = 0
         self.down = 0
+        self.game = 0
         self.direct = False
         self.servo_seen = False
         self.err = ""
@@ -74,6 +75,10 @@ class State:
             self.temp = [j.temp_c for j in d.joint]
             self.down += 1
 
+    def on_game(self, data: bytes):
+        with self.lock:
+            self.game += 1
+
     def on_motor(self, fb):
         with self.lock:
             self.actual[0] = fb["pos"]
@@ -83,7 +88,7 @@ class State:
     def snapshot(self):
         with self.lock:
             return (list(self.servo), list(self.target), list(self.actual),
-                    list(self.tau), list(self.temp), self.pub, self.down, self.err)
+                    list(self.tau), list(self.temp), self.pub, self.down, self.game, self.err)
 
 
 class ServoWorker(threading.Thread):
@@ -342,6 +347,7 @@ class ClientApp:
                 self._say("broker 端口已占用，复用已有")
         self.mq = mqtt_link.MqttLink(host, port, f"client-{cid}")
         self.mq.handlers[mqtt_link.TOPIC_BYTE_BLOCK] = self.state.on_telemetry
+        self.mq.handlers["GameStatus"] = self.state.on_game
         if not self.mq.start():
             self._say(f"MQTT 连接失败：{self.mq.last_error}")
             self.mq = None
@@ -352,16 +358,17 @@ class ClientApp:
             if s:
                 p, _, ids = s.rpartition(":")
                 specs.append((p, [int(x) for x in ids.split(",")]))
-        try:
-            link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
-        except Exception as exc:  # noqa: BLE001
-            self._say(f"舵机打开失败：{exc}")
-            self.mq.stop(); self.mq = None
-            if self.broker is not None:
-                self.broker.close(); self.broker = None
-            return
-        self.worker = ServoWorker(link, self.mq, self.state)
-        self.worker.start()
+        link = None
+        if not specs:
+            self._say("未配置舵机：仅 MQTT 模式")
+        else:
+            try:
+                link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
+            except Exception as exc:  # noqa: BLE001
+                self._say(f"舵机打开失败，仅 MQTT 继续：{exc}")
+        if link is not None:
+            self.worker = ServoWorker(link, self.mq, self.state)
+            self.worker.start()
         self.state.direct = self.direct_var.get()
         if self.direct_var.get():
             self.motor_worker = MotorWorker(self.state, self.can_port.get().strip(),
@@ -389,7 +396,7 @@ class ClientApp:
         self._say("已断开")
 
     def tick(self):
-        servo, target, actual, tau, temp, pub, down, err = self.state.snapshot()
+        servo, target, actual, tau, temp, pub, down, game, err = self.state.snapshot()
         for i in range(6):
             x = 50 + (servo[i] - 500) / 2000 * 300
             self.canvas.coords(self.servo_bars[i], 50, 40 + i * 60, x, 68 + i * 60)
@@ -402,7 +409,7 @@ class ClientApp:
             self.canvas.coords(self.joint_lines[i], xt, 40 + i * 60, xt, 68 + i * 60)
             self.canvas.itemconfigure(self.joint_text[i],
                                       text=f"{actual[i]:+.2f}/{target[i]:+.2f} τ{tau[i]:+.1f} {temp[i]}℃")
-        self.status.configure(text=f"发布 {pub}   回传 {down}   {err}")
+        self.status.configure(text=f"发布 {pub}   回传 {down}   GameStatus {game}   {err}")
         self.root.after(50, self.tick)
 
     def quit(self):
