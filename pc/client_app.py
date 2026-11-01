@@ -53,7 +53,7 @@ class State:
         self.servo_seen = False
         self.active_channels = list(range(6))
         self.channel_to_joint = list(range(6))
-        self.joint_limit = math.pi
+        self.joint_limit = math.radians(135)
         self.err = ""
 
     def on_control(self, data: bytes):
@@ -259,7 +259,7 @@ class ClientApp:
         tk.OptionMenu(cfg, self.joint_var, *[f"J{i}" for i in range(6)],
                       command=self.set_joint_map).grid(row=5, column=1, sticky="w")
         tk.Label(cfg, text="关节范围", fg="#bbb", bg="#141414").grid(row=6, column=0, pady=4)
-        self.range_var = tk.StringVar(value="360°")
+        self.range_var = tk.StringVar(value="270°")
         tk.OptionMenu(cfg, self.range_var, "270°", "360°",
                       command=self.set_joint_range).grid(row=6, column=1, sticky="w")
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
