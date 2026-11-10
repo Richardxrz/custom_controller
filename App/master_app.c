@@ -9,6 +9,9 @@
 #include "tx_uart_it.h"
 #include "uart_rx.h"
 #include "usbd_cdc_if.h"
+#include "usbd_def.h"
+
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
 #define MASTER_JOINTS 6u
 #define MASTER_TX_PERIOD_MS 10u /* 100 Hz 上行 */
@@ -96,7 +99,7 @@ void Master_Loop(void) {
   CcUplink_Encode(payload, &s_up);
 
   uint16_t n = RmFrame_Encode(s_frame, sizeof(s_frame), 0x0302, s_seq, payload, CC_UPLINK_LEN);
-  if (n > 0u) {
+  if (n > 0u && hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) {
     CDC_Transmit_FS(s_frame, n); /* USB CDC：PC 看到的仍是串口 */
   }
 
@@ -111,7 +114,7 @@ void Master_Loop(void) {
     memcpy(&map[14 + i * 2], &cdeg, 2);
   }
   uint16_t mn = RmFrame_Encode(s_map_frame, sizeof(s_map_frame), 0x0303, s_seq, map, sizeof(map));
-  if (mn > 0u) {
+  if (mn > 0u && hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED) {
     CDC_Transmit_FS(s_map_frame, mn);
   }
 }
