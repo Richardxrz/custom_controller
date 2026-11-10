@@ -12,12 +12,27 @@ import json
 import mimetypes
 import os
 import posixpath
+import sys
 import threading
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
-WEB_DIR = os.path.dirname(os.path.abspath(__file__))
+def _find_web_dir() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [here]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates += [os.path.join(meipass, "web_viewer"),
+                       os.path.join(os.path.dirname(meipass), "Resources", "web_viewer")]
+    candidates.append(os.path.join(os.path.dirname(here), "Resources", "web_viewer"))
+    for c in candidates:
+        if os.path.isfile(os.path.join(c, "index.html")):
+            return c
+    return here
+
+
+WEB_DIR = _find_web_dir()
 MODEL_DIR = ""
 URDF_REL = ""
 ANGLES = [0.0] * 6

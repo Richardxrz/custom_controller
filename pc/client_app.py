@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -35,8 +34,25 @@ from mock_broker import MockBroker
 from usb_can_damiao import Damiao
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-_REBOT = os.path.join(HERE, "web_viewer", "models", "rebot")
-_DEMO = os.path.join(HERE, "web_viewer", "models", "demo")
+
+
+def _data_root() -> str:
+    here = HERE
+    candidates = [here]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates += [meipass,
+                       os.path.join(os.path.dirname(meipass), "Resources"),
+                       os.path.join(meipass, "..", "Resources")]
+    for c in candidates:
+        if os.path.isdir(os.path.join(c, "web_viewer")):
+            return c
+    return here
+
+
+DATA_ROOT = _data_root()
+_REBOT = os.path.join(DATA_ROOT, "web_viewer", "models", "rebot")
+_DEMO = os.path.join(DATA_ROOT, "web_viewer", "models", "demo")
 WEB_MODEL = _REBOT if os.path.isdir(_REBOT) else _DEMO
 
 
@@ -205,121 +221,140 @@ class ClientApp:
         self.motor_worker = None
         self.broker = None
         self.sim = None
-        self.viewer_proc = None
+        self.viewer_server = None
         self.viewer_stop = threading.Event()
         self.viewer_poster = None
         root.title("自定义客户端 · 上位机")
-        root.geometry("960x780")
-        root.configure(bg="#141414")
+        root.geometry("1200x860")
+        root.minsize(1100, 760)
+        root.configure(bg="#0f1318")
 
-        cfg = tk.Frame(root, bg="#141414")
-        cfg.pack(fill="x", padx=10, pady=8)
-        tk.Label(cfg, text="MQTT", fg="#bbb", bg="#141414").grid(row=0, column=0)
-        self.host = tk.Entry(cfg, width=16)
-        self.host.insert(0, "127.0.0.1")
-        self.host.grid(row=0, column=1, padx=4)
-        self.port = tk.Entry(cfg, width=6)
-        self.port.insert(0, "3333")
-        self.port.grid(row=0, column=2)
-        tk.Label(cfg, text="ID", fg="#bbb", bg="#141414").grid(row=0, column=3)
-        self.cid = tk.Entry(cfg, width=4)
-        self.cid.insert(0, "1")
-        self.cid.grid(row=0, column=4)
+        bg, card_bg, line = "#0f1318", "#151b22", "#26333d"
+        fg, muted, accent = "#dbe6ef", "#8ba0b2", "#3fd6a8"
+
+        header = tk.Frame(root, bg=bg)
+        header.pack(fill="x", padx=14, pady=(12, 6))
+        tk.Label(header, text="自定义客户端", bg=bg, fg=fg,
+                 font=("Helvetica", 18, "bold")).pack(side="left")
+        self.status = tk.Label(header, text="未连接", bg=bg, fg=muted,
+                               font=("Menlo", 12), anchor="e")
+        self.status.pack(side="right", padx=(10, 0))
+        self.btn = tk.Button(header, text="连接", command=self.toggle,
+                             bg=accent, fg="#062018", relief="flat",
+                             padx=18, pady=4, font=("Helvetica", 12, "bold"))
+        self.btn.pack(side="right", padx=6)
+        tk.Button(header, text="3D 仿真", command=self.open_web_sim,
+                  bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
+        tk.Button(header, text="2D 仿真", command=self.open_sim,
+                  bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
+
+        card = tk.Frame(root, bg=card_bg, highlightbackground=line, highlightthickness=1)
+        card.pack(fill="x", padx=14, pady=6)
+        left = tk.Frame(card, bg=card_bg)
+        left.pack(side="left", fill="x", expand=True, padx=12, pady=10)
+        right = tk.Frame(card, bg=card_bg)
+        right.pack(side="right", fill="x", expand=True, padx=12, pady=10)
+
+        def lab(parent, text, row, col=0):
+            tk.Label(parent, text=text, bg=card_bg, fg=muted).grid(
+                row=row, column=col, sticky="w", pady=3, padx=(0, 6))
+
+        def entry(parent, row, col, width=22, value=""):
+            e = tk.Entry(parent, width=width, bg="#0c1116", fg=fg,
+                         insertbackground=fg, relief="flat", highlightthickness=1,
+                         highlightbackground=line, highlightcolor=accent)
+            e.insert(0, value)
+            e.grid(row=row, column=col, sticky="w", pady=3, padx=(0, 10))
+            return e
+
+        lab(left, "MQTT", 0)
+        self.host = entry(left, 0, 1, 16, "127.0.0.1")
+        self.port = entry(left, 0, 2, 7, "3333")
+        lab(left, "ID", 0, 3)
+        self.cid = entry(left, 0, 4, 5, "1")
         self.broker_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(cfg, text="本地 broker", variable=self.broker_var,
-                       fg="#bbb", bg="#141414", selectcolor="#333").grid(row=0, column=5, padx=8)
+        tk.Checkbutton(left, text="本地 broker", variable=self.broker_var,
+                       bg=card_bg, fg=muted, selectcolor=card_bg,
+                       activebackground=card_bg, activeforeground=fg).grid(
+            row=0, column=5, sticky="w", padx=(0, 6))
 
-        tk.Label(cfg, text="舵机 A", fg="#bbb", bg="#141414").grid(row=1, column=0, pady=4)
-        self.port_a = tk.Entry(cfg, width=34)
-        self.port_a.insert(0, "/dev/tty.usbserial-1130:5")
-        self.port_a.grid(row=1, column=1, columnspan=2, sticky="w")
-        tk.Label(cfg, text="舵机 B（可空）", fg="#bbb", bg="#141414").grid(row=2, column=0)
-        self.port_b = tk.Entry(cfg, width=34)
-        self.port_b.grid(row=2, column=1, columnspan=2, sticky="w")
-
-        self.direct_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(cfg, text="直连电机(台架)", variable=self.direct_var,
-                       fg="#bbb", bg="#141414", selectcolor="#333").grid(row=3, column=0, pady=4)
-        self.can_port = tk.Entry(cfg, width=34)
-        self.can_port.insert(0, "/dev/tty.usbmodem00000000050C1")
-        self.can_port.grid(row=3, column=1, columnspan=2, sticky="w")
-        tk.Label(cfg, text="ID", fg="#bbb", bg="#141414").grid(row=3, column=2, sticky="e")
-        self.motor_id = tk.Entry(cfg, width=4)
-        self.motor_id.insert(0, "8")
-        self.motor_id.grid(row=3, column=3)
-        tk.Label(cfg, text="Kp", fg="#bbb", bg="#141414").grid(row=3, column=4)
-        self.kp = tk.Entry(cfg, width=5)
-        self.kp.insert(0, "5")
-        self.kp.grid(row=3, column=5)
-        tk.Label(cfg, text="Kd", fg="#bbb", bg="#141414").grid(row=3, column=6)
-        self.kd = tk.Entry(cfg, width=5)
-        self.kd.insert(0, "0.5")
-        self.kd.grid(row=3, column=7)
-
-        self.btn = tk.Button(cfg, text="连接", command=self.toggle)
-        self.btn.grid(row=1, column=2, padx=8)
-        tk.Button(cfg, text="2D 仿真", command=self.open_sim).grid(row=0, column=6, padx=8)
-        tk.Label(cfg, text="3D 模型", fg="#bbb", bg="#141414").grid(row=4, column=0, pady=4)
-        self.model_path = tk.Entry(cfg, width=34)
-        self.model_path.insert(0, WEB_MODEL)
-        self.model_path.grid(row=4, column=1, columnspan=2, sticky="w")
-        tk.Button(cfg, text="3D 仿真", command=self.open_web_sim).grid(row=4, column=2, padx=8)
-        tk.Label(cfg, text="单舵机→关节", fg="#bbb", bg="#141414").grid(row=5, column=0, pady=4)
-        self.joint_var = tk.StringVar(value="J0")
-        tk.OptionMenu(cfg, self.joint_var, *[f"J{i}" for i in range(6)],
-                      command=self.set_joint_map).grid(row=5, column=1, sticky="w")
-        tk.Label(cfg, text="关节范围", fg="#bbb", bg="#141414").grid(row=6, column=0, pady=4)
-        self.range_var = tk.StringVar(value="270°")
-        tk.OptionMenu(cfg, self.range_var, "270°", "360°",
-                      command=self.set_joint_range).grid(row=6, column=1, sticky="w")
-        tk.Label(cfg, text="舵机来源", fg="#bbb", bg="#141414").grid(row=7, column=0, pady=4)
+        lab(left, "来源", 1)
         self.source_var = tk.StringVar(value="PC直连")
-        tk.OptionMenu(cfg, self.source_var, "PC直连", "C板主端").grid(row=7, column=1, sticky="w")
-        tk.Label(cfg, text="C板端口", fg="#bbb", bg="#141414").grid(row=8, column=0)
-        self.master_port = tk.Entry(cfg, width=34)
-        self.master_port.insert(0, "")
+        tk.OptionMenu(left, self.source_var, "PC直连", "C板主端").grid(
+            row=1, column=1, sticky="w", pady=3)
+        lab(left, "C板端口", 1, 2)
+        self.master_port = entry(left, 1, 3, 30, "")
+        self.master_port.grid_configure(columnspan=3)
         detected = find_cboard_port()
         if detected:
             self.master_port.delete(0, "end")
             self.master_port.insert(0, detected)
             self.source_var.set("C板主端")
-        self.master_port.grid(row=8, column=1, columnspan=2, sticky="w")
-        self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
-                               font=("Menlo", 12), anchor="w")
-        self.status.pack(fill="x", padx=12)
 
-        body = tk.Frame(root, bg="#141414")
-        body.pack(fill="both", expand=True, padx=10, pady=6)
-        self.canvas = tk.Canvas(body, width=930, height=470, bg="#141414",
-                                highlightthickness=0)
-        self.canvas.pack()
-        self.canvas.create_text(180, 12, text="主端舵机（PRAD）", fill="#bbb")
-        self.canvas.create_text(700, 12, text="机器人关节（目标/实际）", fill="#bbb")
+        lab(left, "舵机 A", 2)
+        self.port_a = entry(left, 2, 1, 30, "/dev/tty.usbserial-1130:5")
+        self.port_a.grid_configure(columnspan=3)
+        lab(left, "舵机 B", 3)
+        self.port_b = entry(left, 3, 1, 30, "")
+        self.port_b.grid_configure(columnspan=3)
+
+        self.direct_var = tk.BooleanVar(value=True)
+        tk.Checkbutton(right, text="直连电机（台架）", variable=self.direct_var,
+                       bg=card_bg, fg=muted, selectcolor=card_bg,
+                       activebackground=card_bg, activeforeground=fg).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=3)
+        lab(right, "CAN", 0, 2)
+        self.can_port = entry(right, 0, 3, 28, "/dev/tty.usbmodem00000000050C1")
+        lab(right, "ID", 1)
+        self.motor_id = entry(right, 1, 1, 5, "8")
+        lab(right, "Kp", 1, 2)
+        self.kp = entry(right, 1, 3, 5, "5")
+        lab(right, "Kd", 2)
+        self.kd = entry(right, 2, 1, 5, "0.5")
+        lab(right, "单舵机→关节", 2, 2)
+        self.joint_var = tk.StringVar(value="J0")
+        tk.OptionMenu(right, self.joint_var, *[f"J{i}" for i in range(6)],
+                      command=self.set_joint_map).grid(row=2, column=3, sticky="w")
+        lab(right, "关节范围", 3)
+        self.range_var = tk.StringVar(value="270°")
+        tk.OptionMenu(right, self.range_var, "270°", "360°",
+                      command=self.set_joint_range).grid(row=3, column=1, sticky="w")
+        lab(right, "3D 模型", 4)
+        self.model_path = entry(right, 4, 1, 38, WEB_MODEL)
+        self.model_path.grid_configure(columnspan=3)
+
+        body = tk.Frame(root, bg=bg)
+        body.pack(fill="both", expand=True, padx=14, pady=4)
+        self.canvas = tk.Canvas(body, bg=bg, highlightthickness=0, height=390)
+        self.canvas.pack(fill="both", expand=True)
+        self.canvas.create_text(20, 12, text="主端舵机（PRAD）", fill=muted, anchor="w")
+        self.canvas.create_text(600, 12, text="机器人关节（目标/实际）", fill=muted, anchor="w")
         self.servo_bars, self.servo_text = [], []
         self.joint_bars, self.joint_lines, self.joint_text = [], [], []
         for i in range(6):
-            y = 40 + i * 60
-            self.canvas.create_text(20, y + 14, text=f"J{i}", fill="#eee",
-                                    font=("Menlo", 12, "bold"))
-            self.canvas.create_rectangle(50, y, 350, y + 28, outline="#333", fill="#1e1e1e")
-            bar = self.canvas.create_rectangle(50, y, 50, y + 28, outline="", fill="#3fa")
-            txt = self.canvas.create_text(360, y + 14, text="--", fill="#eee",
+            y = 40 + i * 56
+            self.canvas.create_text(20, y + 13, text=f"J{i}", fill=fg,
+                                    font=("Menlo", 12, "bold"), anchor="w")
+            self.canvas.create_rectangle(60, y, 460, y + 26, outline=line, fill="#101820")
+            bar = self.canvas.create_rectangle(60, y, 60, y + 26, outline="", fill=accent)
+            txt = self.canvas.create_text(470, y + 13, text="--", fill=fg,
                                           font=("Menlo", 10), anchor="w")
             self.servo_bars.append(bar)
             self.servo_text.append(txt)
 
-            self.canvas.create_rectangle(520, y, 900, y + 28, outline="#333", fill="#1e1e1e")
-            jb = self.canvas.create_rectangle(710, y, 710, y + 28, outline="", fill="#3fa")
-            jl = self.canvas.create_line(710, y, 710, y + 28, fill="#fa3", width=2)
-            jt = self.canvas.create_text(905, y + 14, text="--", fill="#eee",
+            self.canvas.create_rectangle(640, y, 1040, y + 26, outline=line, fill="#101820")
+            jb = self.canvas.create_rectangle(840, y, 840, y + 26, outline="", fill=accent)
+            jl = self.canvas.create_line(840, y, 840, y + 26, fill="#f0b84a", width=2)
+            jt = self.canvas.create_text(1050, y + 13, text="--", fill=fg,
                                          font=("Menlo", 10), anchor="w")
             self.joint_bars.append(jb)
             self.joint_lines.append(jl)
             self.joint_text.append(jt)
 
-        self.log = tk.Text(root, height=6, bg="#0b0b0b", fg="#ccc",
-                           font=("Menlo", 10))
-        self.log.pack(fill="x", padx=10, pady=8)
+        self.log = tk.Text(root, height=6, bg="#0b0f14", fg="#b9c8d4",
+                           insertbackground=fg, relief="flat", highlightthickness=1,
+                           highlightbackground=line, font=("Menlo", 10))
+        self.log.pack(fill="x", padx=14, pady=(4, 10))
         root.protocol("WM_DELETE_WINDOW", self.quit)
         root.after(50, self.tick)
 
@@ -343,15 +378,14 @@ class ClientApp:
         model = self.model_path.get().strip() or WEB_MODEL
         if not os.path.isabs(model):
             model = os.path.join(HERE, model)
-        if self.viewer_proc is None:
+        if self.viewer_server is None:
             try:
-                self.viewer_proc = subprocess.Popen(
-                    [sys.executable, "-u", os.path.join(HERE, "web_viewer", "server.py"),
-                     "--model", model, "--port", "8765"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-                time.sleep(0.8)
+                from web_viewer.server import ViewerServer
+                self.viewer_server = ViewerServer(model, port=8765)
+                self.viewer_server.start()
             except Exception as exc:  # noqa: BLE001
                 self._say(f"3D 服务启动失败: {exc}")
+                return
         webbrowser.open("http://127.0.0.1:8765/?follow=1")
         self._say(f"3D 仿真: {model}")
         if self.viewer_poster is None:
@@ -479,15 +513,15 @@ class ClientApp:
     def tick(self):
         servo, target, actual, tau, temp, pub, down, game, err = self.state.snapshot()
         for i in range(6):
-            x = 50 + (servo[i] - 500) / 2000 * 300
-            self.canvas.coords(self.servo_bars[i], 50, 40 + i * 60, x, 68 + i * 60)
+            x = 60 + (servo[i] - 500) / 2000 * 400
+            self.canvas.coords(self.servo_bars[i], 60, 40 + i * 56, x, 66 + i * 56)
             self.canvas.itemconfigure(self.servo_text[i],
                                       text=f"{servo[i]:4d}  {(servo[i]-500)/2000*270:5.1f}°")
-            xt = 710 + max(-1, min(1, target[i] / math.pi)) * 190
-            xa = 710 + max(-1, min(1, actual[i] / math.pi)) * 190
-            self.canvas.coords(self.joint_bars[i], min(710, xa), 40 + i * 60,
-                               max(710, xa), 68 + i * 60)
-            self.canvas.coords(self.joint_lines[i], xt, 40 + i * 60, xt, 68 + i * 60)
+            xt = 840 + max(-1, min(1, target[i] / math.pi)) * 190
+            xa = 840 + max(-1, min(1, actual[i] / math.pi)) * 190
+            self.canvas.coords(self.joint_bars[i], min(840, xa), 40 + i * 56,
+                               max(840, xa), 66 + i * 56)
+            self.canvas.coords(self.joint_lines[i], xt, 40 + i * 56, xt, 66 + i * 56)
             self.canvas.itemconfigure(self.joint_text[i],
                                       text=f"{actual[i]:+.2f}/{target[i]:+.2f} τ{tau[i]:+.1f} {temp[i]}℃")
         self.status.configure(text=f"发布 {pub}   回传 {down}   GameStatus {game}   {err}")
@@ -495,13 +529,9 @@ class ClientApp:
 
     def quit(self):
         self.viewer_stop.set()
-        if self.viewer_proc is not None:
-            self.viewer_proc.terminate()
-            try:
-                self.viewer_proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.viewer_proc.kill()
-            self.viewer_proc = None
+        if self.viewer_server is not None:
+            self.viewer_server.stop()
+            self.viewer_server = None
         self.disconnect()
         self.root.destroy()
 
@@ -525,7 +555,7 @@ def main() -> int:
         root.after(200, app.open_sim)
     if args.web_sim:
         root.after(200, app.open_web_sim)
-    if args.auto_cboard:
+    if args.auto_cboard or getattr(sys, "frozen", False):
         root.after(400, app.auto_cboard)
     if args.seconds:
         root.after(int(args.seconds * 1000), app.quit)

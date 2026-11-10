@@ -19,3 +19,7 @@ compile_commands.json
 __pycache__/
 *.pyc
 .venv/
+
+# PyInstaller
+pc/dist/
+pc/*.spec

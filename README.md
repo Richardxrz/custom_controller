@@ -77,6 +77,23 @@ pyocd flash -t stm32f407ighx build/arm/stm32_module_lab.elf      # 机器人端
 | 达妙 | CAN1（PD0/PD1） | 1 Mbps，总线两端 120 Ω |
 | 图传回传 | USART1 TX | `0x0310` 300 B @50 Hz |
 
+## macOS App
+
+已打包：
+
+```text
+~/Applications/机械臂客户端.app
+```
+
+双击即可，自动找 C 板、开 broker、连接。重新打包：
+
+```bash
+cd pc
+./build_app.sh
+```
+
+没有签名，首次打开若被 Gatekeeper 拦：右键 → 打开。
+
 ## 一键启动客户端
 
 ```bash
