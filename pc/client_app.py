@@ -27,6 +27,7 @@ import joint_map
 import mqtt_link
 import payload
 import serial_link
+import serial.tools.list_ports as list_ports
 import servo_link as servo_link_mod
 import usb2can_classic
 from multi_servo_link import MultiServoLink
@@ -37,6 +38,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _REBOT = os.path.join(HERE, "web_viewer", "models", "rebot")
 _DEMO = os.path.join(HERE, "web_viewer", "models", "demo")
 WEB_MODEL = _REBOT if os.path.isdir(_REBOT) else _DEMO
+
+
+def find_cboard_port() -> str:
+    """找 STM32 USB CDC（0483:5740），即 C 板主端。"""
+    for p in list_ports.comports():
+        if p.vid == 0x0483 and p.pid == 0x5740:
+            return p.device
+    return ""
 
 
 class State:
@@ -269,6 +278,11 @@ class ClientApp:
         tk.Label(cfg, text="C板端口", fg="#bbb", bg="#141414").grid(row=8, column=0)
         self.master_port = tk.Entry(cfg, width=34)
         self.master_port.insert(0, "")
+        detected = find_cboard_port()
+        if detected:
+            self.master_port.delete(0, "end")
+            self.master_port.insert(0, detected)
+            self.source_var.set("C板主端")
         self.master_port.grid(row=8, column=1, columnspan=2, sticky="w")
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
@@ -369,6 +383,17 @@ class ClientApp:
         with self.state.lock:
             self.state.channel_to_joint[0] = j
             self.state.target = [0.0] * 6
+
+    def auto_cboard(self):
+        port = find_cboard_port()
+        if not port:
+            self._say("未找到 C 板 USB CDC（0483:5740），请检查 USB 线/口")
+            return
+        self.master_port.delete(0, "end")
+        self.master_port.insert(0, port)
+        self.source_var.set("C板主端")
+        self.direct_var.set(False)
+        self.connect()
 
     def toggle(self):
         if self.mq is not None:
@@ -490,6 +515,7 @@ def main() -> int:
     ap.add_argument("--seconds", type=float)
     ap.add_argument("--sim", action="store_true")
     ap.add_argument("--web-sim", action="store_true")
+    ap.add_argument("--auto-cboard", action="store_true")
     args = ap.parse_args()
     root = tk.Tk()
     app = ClientApp(root)
@@ -499,6 +525,8 @@ def main() -> int:
         root.after(200, app.open_sim)
     if args.web_sim:
         root.after(200, app.open_web_sim)
+    if args.auto_cboard:
+        root.after(400, app.auto_cboard)
     if args.seconds:
         root.after(int(args.seconds * 1000), app.quit)
     root.mainloop()

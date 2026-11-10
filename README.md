@@ -77,6 +77,22 @@ pyocd flash -t stm32f407ighx build/arm/stm32_module_lab.elf      # 机器人端
 | 达妙 | CAN1（PD0/PD1） | 1 Mbps，总线两端 120 Ω |
 | 图传回传 | USART1 TX | `0x0310` 300 B @50 Hz |
 
+## 一键启动客户端
+
+```bash
+cd pc
+./start.command        # 或双击 start.command
+```
+
+它会：
+
+- 自动找 C 板 USB CDC（`0483:5740`）并填入；
+- 自动选 `C板主端`、取消直连电机；
+- 启动内置 MQTT broker；
+- 自动连接。
+
+没有 C 板时仍会打开手动界面，不会自动连接。
+
 ## 跑终端（无硬件也能演示）
 
 ```bash
