@@ -268,7 +268,7 @@ class ClientApp:
         tk.OptionMenu(cfg, self.source_var, "PC直连", "C板主端").grid(row=7, column=1, sticky="w")
         tk.Label(cfg, text="C板端口", fg="#bbb", bg="#141414").grid(row=8, column=0)
         self.master_port = tk.Entry(cfg, width=34)
-        self.master_port.insert(0, "/dev/cu.usbmodem00000000050C1")
+        self.master_port.insert(0, "")
         self.master_port.grid(row=8, column=1, columnspan=2, sticky="w")
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
