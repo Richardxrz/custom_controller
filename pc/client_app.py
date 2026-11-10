@@ -25,6 +25,9 @@ import dm_can
 import joint_map
 import mqtt_link
 import payload
+import struct
+
+import cboard_link
 import serial_link
 import serial.tools.list_ports as list_ports
 import servo_link as servo_link_mod
@@ -75,6 +78,7 @@ class State:
         self.pub = 0
         self.down = 0
         self.game = 0
+        self.scan_text = ""
         self.direct = False
         self.servo_seen = False
         self.active_channels = list(range(6))
@@ -116,6 +120,21 @@ class State:
         with self.lock:
             self.game += 1
 
+    def on_mapped(self, data: bytes):
+        if len(data) < 26:
+            return
+        vals = [struct.unpack_from("<h", data, 14 + i * 2)[0] / 100.0 for i in range(6)]
+        with self.lock:
+            self.target = vals
+
+    def on_scan(self, data: bytes):
+        if len(data) < 15:
+            return
+        a = [x for x in data[3:9] if x]
+        b = [x for x in data[9:15] if x]
+        with self.lock:
+            self.scan_text = f"A:{a or '-'} B:{b or '-'}"
+
     def on_motor(self, fb):
         with self.lock:
             self.actual[0] = fb["pos"]
@@ -125,7 +144,8 @@ class State:
     def snapshot(self):
         with self.lock:
             return (list(self.servo), list(self.target), list(self.actual),
-                    list(self.tau), list(self.temp), self.pub, self.down, self.game, self.err)
+                    list(self.tau), list(self.temp), self.pub, self.down, self.game,
+                    self.scan_text, self.err)
 
 
 class ServoWorker(threading.Thread):
@@ -140,13 +160,16 @@ class ServoWorker(threading.Thread):
                 self.link.start()
             while not self.stop_flag:
                 for f in self.link.poll():
-                    if f.cmd_id != 0x0302:
-                        continue
-                    up = payload.decode_uplink(f.data)
-                    if up is None:
-                        continue
-                    self.mq.publish_control(payload.encode_uplink(up))
-                    self.state.on_control(f.data)
+                    if f.cmd_id == 0x0302:
+                        up = payload.decode_uplink(f.data)
+                        if up is None:
+                            continue
+                        self.mq.publish_control(payload.encode_uplink(up))
+                        self.state.on_control(f.data)
+                    elif f.cmd_id == 0x0303:
+                        self.state.on_mapped(f.data)
+                    elif f.cmd_id == 0x0304:
+                        self.state.on_scan(f.data)
                 time.sleep(0.001)
         finally:
             self.link.close()
@@ -218,6 +241,7 @@ class ClientApp:
         self.state = State()
         self.mq = None
         self.worker = None
+        self.link = None
         self.motor_worker = None
         self.broker = None
         self.sim = None
@@ -244,6 +268,8 @@ class ClientApp:
                              padx=18, pady=4, font=("Helvetica", 12, "bold"))
         self.btn.pack(side="right", padx=6)
         tk.Button(header, text="3D 仿真", command=self.open_web_sim,
+                  bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
+        tk.Button(header, text="扫描舵机", command=self.scan_servos,
                   bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
         tk.Button(header, text="2D 仿真", command=self.open_sim,
                   bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
@@ -411,6 +437,13 @@ class ClientApp:
         self.state.joint_limit = math.radians(deg / 2)
         with self.state.lock:
             self.state.target = [0.0] * 6
+        if self.link is not None and hasattr(self.link, "send_config"):
+            self.link.send_config(deg, 0)
+
+    def scan_servos(self):
+        if self.link is not None and hasattr(self.link, "request_scan"):
+            self.link.request_scan()
+            self._say("扫描舵机…")
 
     def set_joint_map(self, _=None):
         j = int(self.joint_var.get()[1:])
@@ -454,7 +487,7 @@ class ClientApp:
         specs = []
         if self.source_var.get() == "C板主端":
             try:
-                link = serial_link.SerialLink(self.master_port.get().strip(), 921600)
+                link = cboard_link.CBoardLink(self.master_port.get().strip(), 921600)
             except Exception as exc:  # noqa: BLE001
                 self._say(f"C 板串口打开失败，仅 MQTT 继续：{exc}")
             with self.state.lock:
@@ -481,9 +514,13 @@ class ClientApp:
                     link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
                 except Exception as exc:  # noqa: BLE001
                     self._say(f"舵机打开失败，仅 MQTT 继续：{exc}")
+        self.link = link
         if link is not None:
             self.worker = ServoWorker(link, self.mq, self.state)
             self.worker.start()
+            if hasattr(link, "send_config"):
+                deg = 360 if self.range_var.get().startswith("360") else 270
+                link.send_config(deg, 0)
         self.state.direct = self.direct_var.get()
         if self.direct_var.get():
             self.motor_worker = MotorWorker(self.state, self.can_port.get().strip(),
@@ -501,6 +538,7 @@ class ClientApp:
         if self.worker is not None:
             self.worker.stop()
             self.worker = None
+        self.link = None
         if self.mq is not None:
             self.mq.stop()
             self.mq = None
@@ -511,7 +549,7 @@ class ClientApp:
         self._say("已断开")
 
     def tick(self):
-        servo, target, actual, tau, temp, pub, down, game, err = self.state.snapshot()
+        servo, target, actual, tau, temp, pub, down, game, scan_text, err = self.state.snapshot()
         for i in range(6):
             x = 60 + (servo[i] - 500) / 2000 * 400
             self.canvas.coords(self.servo_bars[i], 60, 40 + i * 56, x, 66 + i * 56)
@@ -524,7 +562,7 @@ class ClientApp:
             self.canvas.coords(self.joint_lines[i], xt, 40 + i * 56, xt, 66 + i * 56)
             self.canvas.itemconfigure(self.joint_text[i],
                                       text=f"{actual[i]:+.2f}/{target[i]:+.2f} τ{tau[i]:+.1f} {temp[i]}℃")
-        self.status.configure(text=f"发布 {pub}   回传 {down}   GameStatus {game}   {err}")
+        self.status.configure(text=f"发布 {pub}   回传 {down}   GameStatus {game}   {scan_text}")
         self.root.after(50, self.tick)
 
     def quit(self):
