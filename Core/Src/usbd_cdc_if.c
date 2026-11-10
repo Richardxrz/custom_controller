@@ -99,7 +99,19 @@ uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
 uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
+#define CDC_RX_RING 512u
+static volatile uint8_t s_rx[CDC_RX_RING];
+static volatile uint16_t s_rx_head;
+static volatile uint16_t s_rx_tail;
 
+uint16_t CDC_Read(uint8_t *out, uint16_t cap) {
+  uint16_t n = 0;
+  while (n < cap && s_rx_tail != s_rx_head) {
+    out[n++] = s_rx[s_rx_tail];
+    s_rx_tail = (uint16_t)((s_rx_tail + 1u) % CDC_RX_RING);
+  }
+  return n;
+}
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -266,6 +278,13 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+  for (uint32_t i = 0; i < *Len; i++) {
+    uint16_t next = (uint16_t)((s_rx_head + 1u) % CDC_RX_RING);
+    if (next != s_rx_tail) {
+      s_rx[s_rx_head] = Buf[i];
+      s_rx_head = next;
+    }
+  }
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   return (USBD_OK);
