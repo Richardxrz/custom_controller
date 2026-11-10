@@ -73,10 +73,6 @@ void Master_Loop(void) {
     BusServoGroup_StartSweep(&s_group_b, now);
     s_sweeping = true;
   }
-  if (!s_sweeping) {
-    return;
-  }
-
   if ((uint32_t)(now - s_last_tx) < MASTER_TX_PERIOD_MS) {
     return;
   }
