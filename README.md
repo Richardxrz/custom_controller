@@ -9,9 +9,9 @@
 | 形态 | 链路 | 什么时候用 |
 |---|---|---|
 | **PC 直连（已采用）** | ZP10S×6 ─单总线×2（3+3）─ ZL 转接板×2 ─USB─ PC（轮询 + MQTT） | 操作端不加 C 板；单总线 27 Hz，双总线约 55 Hz（代码待支持） |
-| C 板中转（不采用，仅备选） | 舵机 ─ C 板 UART6 ─ UART1 ─ USB-TTL ─ PC | 已验证无频率收益；只作为回退 |
+| **C 板中转（v1 已实现）** | 舵机 3+3 ─ C 板 UART1/UART6 ─ USB CDC ─ PC | 两路总线，约 56 Hz；PC 免 USB-TTL |
 
-PC 直连是当前方案：`terminal_app.py --source servo`；`--source master` 仅作 C 板备选。
+PC 直连：`terminal_app.py --source servo`；C 板：`--source master --port /dev/cu.usbmodem...`（USB CDC 仍显示为串口）。
 
 ## 数据流
 
@@ -56,7 +56,7 @@ pyocd flash -t stm32f407ighx build/master/stm32_module_lab.elf   # 主端
 pyocd flash -t stm32f407ighx build/arm/stm32_module_lab.elf      # 机器人端
 ```
 
-> PC 直连不需要烧主端固件；`build/master` 只在 C 板备选方案使用。
+> C 板方案烧 `build/master`；PC 直连方案不需要烧主端固件。
 
 ## 接线
 
@@ -64,9 +64,10 @@ pyocd flash -t stm32f407ighx build/arm/stm32_module_lab.elf      # 机器人端
 
 | 用途 | 接口 | 说明 |
 |---|---|---|
-| 舵机总线 | ZL 转接板×2（USB） | 6 轴拆 3+3；每块板 115200 |
-| PC | USB-A / USB-C | 两块板各占一个 USB 口；建议带供电 Hub |
-| 急停 | 软件（PC 键盘） | 无硬件急停；C 板备选方案才有 KEY（PA0） |
+| 舵机 A | UART1（PA9/PB7） | 115200，ID 1/2/3，需 BSS138 单线转接 |
+| 舵机 B | UART6（PG14/PG9） | 115200，ID 4/5/6，需 BSS138 单线转接 |
+| PC | micro USB（USB CDC） | PA11/PA12，PC 显示为串口，免 USB-TTL |
+| 急停 | KEY（PA0） | 按下置 bit2，机器人端保持 |
 
 **机器人端 C 板**
 
@@ -101,5 +102,5 @@ cd pc && python3 terminal_app.py --simulate --host 127.0.0.1 --mqtt-port 3333 --
 2. **达妙反馈帧的 ID 与温度位域未核**：`dm_can.h` 顶部列了三处不确定项；先单电机空载验证。
 3. **UART1 是手写初始化**（CubeMX 里没有）：先量 PA9/PB7 波形再接图传。
 4. **视频只做拆包统计**，没有 HEVC 解码。
-5. **没有 USB CDC**：PC 链路走 UART1 + USB-TTL，避免在 CubeMX 之外手写 USB 栈。
+5. **USB CDC 已接入但未上板验证**：PA11/PA12，PLLQ=7；PC 端仍是串口。
 6. **2027 版通信协议未发布**：当前按 2026 V1.3.1 实现；发布后核对命令码/MQTT 参数即可，协议层已隔离。

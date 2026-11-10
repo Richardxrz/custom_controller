@@ -26,6 +26,7 @@ import dm_can
 import joint_map
 import mqtt_link
 import payload
+import serial_link
 import servo_link as servo_link_mod
 import usb2can_classic
 from multi_servo_link import MultiServoLink
@@ -199,7 +200,7 @@ class ClientApp:
         self.viewer_stop = threading.Event()
         self.viewer_poster = None
         root.title("自定义客户端 · 上位机")
-        root.geometry("960x720")
+        root.geometry("960x780")
         root.configure(bg="#141414")
 
         cfg = tk.Frame(root, bg="#141414")
@@ -262,6 +263,13 @@ class ClientApp:
         self.range_var = tk.StringVar(value="270°")
         tk.OptionMenu(cfg, self.range_var, "270°", "360°",
                       command=self.set_joint_range).grid(row=6, column=1, sticky="w")
+        tk.Label(cfg, text="舵机来源", fg="#bbb", bg="#141414").grid(row=7, column=0, pady=4)
+        self.source_var = tk.StringVar(value="PC直连")
+        tk.OptionMenu(cfg, self.source_var, "PC直连", "C板主端").grid(row=7, column=1, sticky="w")
+        tk.Label(cfg, text="C板端口", fg="#bbb", bg="#141414").grid(row=8, column=0)
+        self.master_port = tk.Entry(cfg, width=34)
+        self.master_port.insert(0, "/dev/cu.usbmodem00000000050C1")
+        self.master_port.grid(row=8, column=1, columnspan=2, sticky="w")
         self.status = tk.Label(root, text="未连接", fg="#9ad", bg="#141414",
                                font=("Menlo", 12), anchor="w")
         self.status.pack(fill="x", padx=12)
@@ -383,27 +391,37 @@ class ClientApp:
             self._say(f"MQTT 连接失败：{self.mq.last_error}")
             self.mq = None
             return
-        specs = []
-        for e in (self.port_a, self.port_b):
-            s = e.get().strip()
-            if s:
-                p, _, ids = s.rpartition(":")
-                specs.append((p, [int(x) for x in ids.split(",")]))
-        total_ids = sum(len(ids) for _, ids in specs)
-        with self.state.lock:
-            self.state.active_channels = list(range(total_ids))
-            self.state.channel_to_joint = list(range(6))
-            if total_ids == 1:
-                self.state.channel_to_joint[0] = int(self.joint_var.get()[1:])
-            self.state.target = [0.0] * 6
         link = None
-        if not specs:
-            self._say("未配置舵机：仅 MQTT 模式")
-        else:
+        specs = []
+        if self.source_var.get() == "C板主端":
             try:
-                link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
+                link = serial_link.SerialLink(self.master_port.get().strip(), 921600)
             except Exception as exc:  # noqa: BLE001
-                self._say(f"舵机打开失败，仅 MQTT 继续：{exc}")
+                self._say(f"C 板串口打开失败，仅 MQTT 继续：{exc}")
+            with self.state.lock:
+                self.state.active_channels = list(range(6))
+                self.state.channel_to_joint = list(range(6))
+                self.state.target = [0.0] * 6
+        else:
+            for e in (self.port_a, self.port_b):
+                s = e.get().strip()
+                if s:
+                    p, _, ids = s.rpartition(":")
+                    specs.append((p, [int(x) for x in ids.split(",")]))
+            total_ids = sum(len(ids) for _, ids in specs)
+            with self.state.lock:
+                self.state.active_channels = list(range(total_ids))
+                self.state.channel_to_joint = list(range(6))
+                if total_ids == 1:
+                    self.state.channel_to_joint[0] = int(self.joint_var.get()[1:])
+                self.state.target = [0.0] * 6
+            if not specs:
+                self._say("未配置舵机：仅 MQTT 模式")
+            else:
+                try:
+                    link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
+                except Exception as exc:  # noqa: BLE001
+                    self._say(f"舵机打开失败，仅 MQTT 继续：{exc}")
         if link is not None:
             self.worker = ServoWorker(link, self.mq, self.state)
             self.worker.start()
@@ -414,7 +432,7 @@ class ClientApp:
                                             float(self.kd.get()))
             self.motor_worker.start()
         self.btn.configure(text="断开")
-        self._say(f"已连接 {host}:{port}，舵机 {specs}")
+        self._say(f"已连接 {host}:{port}，来源 {self.source_var.get()}")
 
     def disconnect(self):
         if self.motor_worker is not None:

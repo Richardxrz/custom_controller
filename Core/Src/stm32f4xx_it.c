@@ -227,6 +227,15 @@ void USART6_IRQHandler(void)
   /* USER CODE END USART6_IRQn 1 */
 }
 
+/**
+  * @brief USB OTG FS global interrupt.
+  */
+extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
+void OTG_FS_IRQHandler(void)
+{
+  HAL_PCD_IRQHandler(&hpcd_USB_OTG_FS);
+}
+
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */
