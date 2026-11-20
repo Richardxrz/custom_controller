@@ -84,6 +84,15 @@ static void scan_and_init(void) {
   s_last_scan = HAL_GetTick();
 }
 
+static uint8_t joint_slot(uint8_t id) {
+  switch (id) {
+  case 4: return 4; /* pitch -> J4 */
+  case 5: return 3; /* roll  -> J3 */
+  case 6: return 5; /* yaw   -> J5 */
+  default: return (id >= 1u && id <= 3u) ? (uint8_t)(id - 1u) : 0xFFu;
+  }
+}
+
 static int16_t map_cdeg(uint16_t raw, uint8_t axis) {
   int32_t span = (int32_t)s_range_deg * 100;
   int32_t v = ((int32_t)raw - 500) * span / 2000 - span / 2;
@@ -177,15 +186,17 @@ void Master_Loop(void) {
   for (uint8_t i = 0; i < s_group_a.n && i < 3u; i++) {
     uint16_t pwm = 0;
     uint8_t id = s_ids_a[i];
-    if (id >= 1u && id <= 6u && BusServoGroup_GetPos(&s_group_a, i, &pwm)) {
-      s_up.joints[id - 1u] = pwm;
+    uint8_t slot = joint_slot(id);
+    if (slot < 6u && BusServoGroup_GetPos(&s_group_a, i, &pwm)) {
+      s_up.joints[slot] = pwm;
     }
   }
   for (uint8_t i = 0; i < s_group_b.n && i < 3u; i++) {
     uint16_t pwm = 0;
     uint8_t id = s_ids_b[i];
-    if (id >= 1u && id <= 6u && BusServoGroup_GetPos(&s_group_b, i, &pwm)) {
-      s_up.joints[id - 1u] = pwm;
+    uint8_t slot = joint_slot(id);
+    if (slot < 6u && BusServoGroup_GetPos(&s_group_b, i, &pwm)) {
+      s_up.joints[slot] = pwm;
     }
   }
   s_up.seq = s_seq++;

@@ -246,6 +246,7 @@ class ClientApp:
         self.motor_worker = None
         self.broker = None
         self.sim = None
+        self.angle_win = None
         self.viewer_server = None
         self.viewer_stop = threading.Event()
         self.viewer_poster = None
@@ -268,6 +269,8 @@ class ClientApp:
                              bg=accent, fg="#062018", relief="flat",
                              padx=18, pady=4, font=("Helvetica", 12, "bold"))
         self.btn.pack(side="right", padx=6)
+        tk.Button(header, text="角度监控", command=self.open_angle_monitor,
+                  bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
         tk.Button(header, text="3D 仿真", command=self.open_web_sim,
                   bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
         tk.Button(header, text="扫描舵机", command=self.scan_servos,
@@ -400,6 +403,18 @@ class ClientApp:
         from arm_sim import ArmView
 
         self.sim = ArmView(self.root, self.state)
+
+    def open_angle_monitor(self):
+        from angle_monitor import AngleMonitor
+
+        if self.angle_win is not None:
+            try:
+                if self.angle_win.win.winfo_exists():
+                    self.angle_win.win.lift()
+                    return
+            except Exception:
+                pass
+        self.angle_win = AngleMonitor(self.root, self.state)
 
     def open_web_sim(self):
         model = self.model_path.get().strip() or WEB_MODEL
