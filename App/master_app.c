@@ -13,7 +13,7 @@
 
 #define MASTER_JOINTS 6u
 #define MASTER_TX_PERIOD_MS 10u
-#define MASTER_SERVO_TIMEOUT_MS 4u
+#define MASTER_SERVO_TIMEOUT_MS 8u
 #define MASTER_SCAN_PERIOD_MS 1000u
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -40,15 +40,15 @@ static RmParser s_pc;
 
 static uint8_t scan_bus(BusServoPort port, uint8_t *out, uint8_t cap) {
   uint8_t n = 0;
-  for (uint8_t id = 1; id <= 6 && n < cap; id++) {
+  for (uint16_t id = 1; id <= 253 && n < cap; id++) {
     BusServo s;
-    BusServo_Init(&s, port, id);
-    BusServo_SetTimeout(&s, 3u);
+    BusServo_Init(&s, port, (uint8_t)id);
+    BusServo_SetTimeout(&s, 8u);
     if (!BusServo_RequestAngle(&s)) {
       continue;
     }
     uint32_t t0 = HAL_GetTick();
-    while ((HAL_GetTick() - t0) < 12u) {
+    while ((HAL_GetTick() - t0) < 15u) {
       BusServo_Poll(&s);
       if (BusServo_GetState(&s) != BUS_SERVO_WAIT) {
         break;
@@ -174,10 +174,19 @@ void Master_Loop(void) {
   }
   s_last_tx = now;
 
-  for (uint8_t i = 0; i < 3u; i++) {
+  for (uint8_t i = 0; i < s_group_a.n && i < 3u; i++) {
     uint16_t pwm = 0;
-    if (i < s_group_a.n && BusServoGroup_GetPos(&s_group_a, i, &pwm)) s_up.joints[i] = pwm;
-    if (i < s_group_b.n && BusServoGroup_GetPos(&s_group_b, i, &pwm)) s_up.joints[i + 3] = pwm;
+    uint8_t id = s_ids_a[i];
+    if (id >= 1u && id <= 6u && BusServoGroup_GetPos(&s_group_a, i, &pwm)) {
+      s_up.joints[id - 1u] = pwm;
+    }
+  }
+  for (uint8_t i = 0; i < s_group_b.n && i < 3u; i++) {
+    uint16_t pwm = 0;
+    uint8_t id = s_ids_b[i];
+    if (id >= 1u && id <= 6u && BusServoGroup_GetPos(&s_group_b, i, &pwm)) {
+      s_up.joints[id - 1u] = pwm;
+    }
   }
   s_up.seq = s_seq++;
   s_up.flags = 0x01;
