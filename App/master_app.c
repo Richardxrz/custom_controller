@@ -38,26 +38,70 @@ static uint8_t s_map_frame[64];
 static uint8_t s_scan_frame[64];
 static RmParser s_pc;
 
+static TIM_HandleTypeDef s_htim5;
 static uint32_t s_led_last;
-static uint8_t s_led_phase;
 
-/* 板载 RGB 共阳：PH12 红、PH11 绿、PH10 蓝，高电平点亮。
- * 120 ms 一拍，红→灭→绿→灭→蓝→灭，表示固件主循环还活着。 */
+/* 板载 RGB 共阳：PH12 红(TIM5_CH3)、PH11 绿(CH2)、PH10 蓝(CH1)，高电平点亮。
+ * 1 kHz PWM，20 ms 更新一次；三路正弦相差 120°，形成连续渐变流水。 */
+static void led_pwm_init(void) {
+  GPIO_InitTypeDef gpio = {0};
+  TIM_OC_InitTypeDef oc = {0};
+
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_TIM5_CLK_ENABLE();
+  gpio.Pin = LED_R_Pin | LED_G_Pin | LED_B_Pin;
+  gpio.Mode = GPIO_MODE_AF_PP;
+  gpio.Pull = GPIO_NOPULL;
+  gpio.Speed = GPIO_SPEED_FREQ_HIGH;
+  gpio.Alternate = GPIO_AF2_TIM5;
+  HAL_GPIO_Init(GPIOH, &gpio);
+
+  s_htim5.Instance = TIM5;
+  s_htim5.Init.Prescaler = 84u - 1u;      /* 84 MHz / 84 = 1 MHz */
+  s_htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
+  s_htim5.Init.Period = 1000u - 1u;       /* 1 kHz */
+  s_htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  s_htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_PWM_Init(&s_htim5) != HAL_OK) {
+    return;
+  }
+  oc.OCMode = TIM_OCMODE_PWM1;
+  oc.Pulse = 0u;
+  oc.OCPolarity = TIM_OCPOLARITY_HIGH;
+  oc.OCFastMode = TIM_OCFAST_DISABLE;
+  HAL_TIM_PWM_ConfigChannel(&s_htim5, &oc, TIM_CHANNEL_1);
+  HAL_TIM_PWM_ConfigChannel(&s_htim5, &oc, TIM_CHANNEL_2);
+  HAL_TIM_PWM_ConfigChannel(&s_htim5, &oc, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&s_htim5, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&s_htim5, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&s_htim5, TIM_CHANNEL_3);
+}
+
 static void led_tick(void) {
   uint32_t now = HAL_GetTick();
-  if ((uint32_t)(now - s_led_last) < 120u) {
+  if ((uint32_t)(now - s_led_last) < 20u) {
     return;
   }
   s_led_last = now;
-  s_led_phase = (uint8_t)((s_led_phase + 1u) % 6u);
-  HAL_GPIO_WritePin(LED_R_GPIO_Port,
-                    LED_R_Pin | LED_G_Pin | LED_B_Pin, GPIO_PIN_RESET);
-  switch (s_led_phase) {
-  case 0: HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_R_Pin, GPIO_PIN_SET); break;
-  case 2: HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_G_Pin, GPIO_PIN_SET); break;
-  case 4: HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_B_Pin, GPIO_PIN_SET); break;
-  default: break;
+  /* 6 s 一圈色环，1536 级；不引入浮点/数学库。 */
+  uint32_t hue = (now % 6000u) * 1536u / 6000u;
+  uint32_t sector = hue / 256u;
+  uint32_t frac = hue % 256u;
+  uint32_t v = 1000u;
+  uint32_t q = v * (256u - frac) / 256u;
+  uint32_t t = v * frac / 256u;
+  uint32_t r = 0u, g = 0u, b = 0u;
+  switch (sector) {
+  case 0: r = v; g = t; b = 0u; break;
+  case 1: r = q; g = v; b = 0u; break;
+  case 2: r = 0u; g = v; b = t; break;
+  case 3: r = 0u; g = q; b = v; break;
+  case 4: r = t; g = 0u; b = v; break;
+  default: r = v; g = 0u; b = q; break;
   }
+  __HAL_TIM_SET_COMPARE(&s_htim5, TIM_CHANNEL_3, r); /* R */
+  __HAL_TIM_SET_COMPARE(&s_htim5, TIM_CHANNEL_2, g); /* G */
+  __HAL_TIM_SET_COMPARE(&s_htim5, TIM_CHANNEL_1, b); /* B */
 }
 
 static uint8_t scan_bus(BusServoPort port, uint8_t *out, uint8_t cap) {
@@ -163,6 +207,7 @@ static void send_scan_report(void) {
 }
 
 void Master_Setup(void) {
+  led_pwm_init();
   led_tick();
   Board_Uart1_Init(115200);
   Board_Uart6_SetBaud(115200);
