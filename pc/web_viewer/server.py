@@ -138,6 +138,34 @@ def find_urdf(model_dir: str) -> str:
     raise SystemExit("模型目录里找不到 .urdf，请用 --urdf 指定")
 
 
+class ViewerServer:
+    """客户端进程内启动的 viewer 服务。"""
+
+    def __init__(self, model_dir: str, urdf: str | None = None, port: int = 8765):
+        global MODEL_DIR, URDF_REL, ANGLES
+        MODEL_DIR = os.path.realpath(model_dir)
+        URDF_REL = urdf or find_urdf(MODEL_DIR)
+        if not os.path.isfile(os.path.join(MODEL_DIR, URDF_REL)):
+            raise FileNotFoundError(f"URDF 不存在: {URDF_REL}")
+        with LOCK:
+            ANGLES = [0.0] * 6
+        self.port = port
+        self.url = f"http://127.0.0.1:{port}/"
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+
+    def start(self) -> str:
+        self.thread.start()
+        return self.url
+
+    def stop(self) -> None:
+        try:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+        except Exception:
+            pass
+
+
 def main() -> int:
     global MODEL_DIR, URDF_REL
     ap = argparse.ArgumentParser()

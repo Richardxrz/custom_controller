@@ -16,9 +16,9 @@ class TestClientState(unittest.TestCase):
         st.on_mapped(b"\x01\x00" + b"\x00" * 12 +
                      b"".join(struct.pack("<h", v) for v in
                               [13500, -13500, 0, 100, 200, 300]))
-        self.assertAlmostEqual(st.target[0], 135.0)
-        self.assertAlmostEqual(st.target[1], -135.0)
-        self.assertAlmostEqual(st.target[5], 3.0)
+        self.assertAlmostEqual(st.target[0], 135.0 * 3.141592653589793 / 180.0)
+        self.assertAlmostEqual(st.target[1], -135.0 * 3.141592653589793 / 180.0)
+        self.assertAlmostEqual(st.target[5], 3.0 * 3.141592653589793 / 180.0)
 
     def test_scan_report(self):
         st = client_app.State()

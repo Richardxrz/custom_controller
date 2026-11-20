@@ -123,7 +123,8 @@ class State:
     def on_mapped(self, data: bytes):
         if len(data) < 26:
             return
-        vals = [struct.unpack_from("<h", data, 14 + i * 2)[0] / 100.0 for i in range(6)]
+        vals = [math.radians(struct.unpack_from("<h", data, 14 + i * 2)[0] / 100.0)
+                for i in range(6)]
         with self.lock:
             self.target = vals
 
