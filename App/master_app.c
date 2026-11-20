@@ -87,8 +87,8 @@ static void scan_and_init(void) {
 static uint8_t joint_slot(uint8_t id) {
   switch (id) {
   case 4: return 3; /* pitch -> J3 */
-  case 5: return 4; /* roll  -> J4 */
-  case 6: return 5; /* yaw   -> J5 */
+  case 5: return 5; /* roll  -> J5 */
+  case 6: return 4; /* yaw   -> J4 */
   default: return (id >= 1u && id <= 3u) ? (uint8_t)(id - 1u) : 0xFFu;
   }
 }
