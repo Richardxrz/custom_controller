@@ -23,10 +23,10 @@ import cboard_link
 import payload
 import serial.tools.list_ports as list_ports
 
-ID_SLOT = {1: 0, 2: 1, 3: 2, 4: 4, 5: 3, 6: 5}
+ID_SLOT = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5}
 ID_JOINT = {1: "J0 base yaw", 2: "J1 shoulder pitch", 3: "J2 elbow pitch",
-            4: "J4 pitch", 5: "J3 roll", 6: "J5 yaw"}
-ID_TAG = {1: "J0", 2: "J1", 3: "J2", 4: "J4", 5: "J3", 6: "J5"}
+            4: "J3 pitch", 5: "J4 roll", 6: "J5 yaw"}
+ID_TAG = {1: "J0", 2: "J1", 3: "J2", 4: "J3", 5: "J4", 6: "J5"}
 
 
 def servo_deg(raw: int) -> float:
@@ -73,7 +73,7 @@ class AngleMonitor:
         self.win.configure(bg="#0f1318")
         tk.Label(self.win, text="绝对角度监控", bg="#0f1318", fg="#dbe6ef",
                  font=("Helvetica", 20, "bold")).pack(anchor="w", padx=18, pady=(12, 0))
-        tk.Label(self.win, text="ID4 → J4 pitch   ID5 → J3 roll   ID6 → J5 yaw；舵盘目标：PRAD 1500 / 舵机 135°",
+        tk.Label(self.win, text="ID4 → J3 pitch   ID5 → J4 roll   ID6 → J5 yaw；舵盘目标：PRAD 1500 / 舵机 135°",
                  bg="#0f1318", fg="#8ba0b2", font=("Helvetica", 12)).pack(anchor="w", padx=18)
         self.canvas = tk.Canvas(self.win, bg="#0f1318", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=18, pady=10)
