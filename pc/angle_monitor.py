@@ -84,6 +84,11 @@ class AngleMonitor:
             servo, target, seen = self.state.snapshot()
         except Exception:
             return
+        try:
+            with self.state.lock:
+                raw_values = list(self.state.raw)
+        except Exception:
+            raw_values = servo
         c = self.canvas
         c.delete("all")
         w = max(c.winfo_width(), 960)
@@ -92,9 +97,9 @@ class AngleMonitor:
                           font=("Helvetica", 18))
         for row, sid in enumerate(range(1, 7)):
             slot = ID_SLOT[sid]
-            raw = servo[slot]
+            raw = raw_values[slot]
             sd = servo_deg(raw)
-            jd = math.degrees(target[slot])
+            jd = sd - 135.0
             hot = sid >= 4
             y = 55 + row * 92
             fg = "#dbe6ef" if hot else "#5f7385"

@@ -59,6 +59,35 @@ _DEMO = os.path.join(DATA_ROOT, "web_viewer", "models", "demo")
 WEB_MODEL = _REBOT if os.path.isdir(_REBOT) else _DEMO
 
 
+CAL_DIR = os.path.expanduser("~/Library/Application Support/ArmClient")
+CAL_FILE = os.path.join(CAL_DIR, "calibration.json")
+
+
+def load_zero():
+    try:
+        with open(CAL_FILE, "r", encoding="utf-8") as f:
+            vals = [int(x) for x in json.load(f)]
+        return vals if len(vals) == 6 else None
+    except Exception:
+        return None
+
+
+def save_zero(vals):
+    try:
+        os.makedirs(CAL_DIR, exist_ok=True)
+        with open(CAL_FILE, "w", encoding="utf-8") as f:
+            json.dump([int(x) for x in vals], f)
+    except Exception:
+        pass
+
+
+def clear_saved_zero():
+    try:
+        os.remove(CAL_FILE)
+    except Exception:
+        pass
+
+
 def find_cboard_port() -> str:
     """找 STM32 USB CDC（0483:5740），即 C 板主端。"""
     for p in list_ports.comports():
@@ -71,6 +100,8 @@ class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.servo = [1500] * 6
+        self.raw = [1500] * 6
+        self.zero_raw = None
         self.target = [0.0] * 6
         self.actual = [0.0] * 6
         self.tau = [0.0] * 6
@@ -90,16 +121,30 @@ class State:
         up = payload.decode_uplink(data)
         if up is None:
             return
+        raw = list(up.joints)
         with self.lock:
-            self.servo = list(up.joints)
+            self.raw = raw
             targets = [0.0] * 6
-            jm = joint_map.JointMap(joint_min=-self.joint_limit, joint_max=self.joint_limit)
-            for i, raw in enumerate(up.joints):
-                if i not in self.active_channels:
-                    continue
-                j = self.channel_to_joint[i] if i < 6 else i
-                if 0 <= j < 6:
-                    targets[j] = jm.to_joint(raw)
+            if self.zero_raw is None:
+                self.servo = list(raw)
+                jm = joint_map.JointMap(joint_min=-self.joint_limit, joint_max=self.joint_limit)
+                for i, value in enumerate(raw):
+                    if i not in self.active_channels:
+                        continue
+                    j = self.channel_to_joint[i] if i < 6 else i
+                    if 0 <= j < 6:
+                        targets[j] = jm.to_joint(value)
+            else:
+                servo = [1500] * 6
+                for i, value in enumerate(raw):
+                    if i not in self.active_channels or i >= 6:
+                        continue
+                    delta = value - self.zero_raw[i]
+                    servo[i] = max(500, min(2500, 1500 + delta))
+                    j = self.channel_to_joint[i]
+                    if 0 <= j < 6:
+                        targets[j] = delta / 1000.0 * self.joint_limit
+                self.servo = servo
             self.target = targets
             self.pub += 1
             self.servo_seen = True
@@ -123,6 +168,8 @@ class State:
     def on_mapped(self, data: bytes):
         if len(data) < 26:
             return
+        if self.zero_raw is not None:
+            return
         vals = [math.radians(struct.unpack_from("<h", data, 14 + i * 2)[0] / 100.0)
                 for i in range(6)]
         with self.lock:
@@ -135,6 +182,20 @@ class State:
         b = [x for x in data[9:15] if x]
         with self.lock:
             self.scan_text = f"A:{a or '-'} B:{b or '-'}"
+
+    def set_zero(self):
+        with self.lock:
+            if not self.servo_seen:
+                return False
+            self.zero_raw = list(self.raw)
+            self.servo = [1500] * 6
+            self.target = [0.0] * 6
+            return True
+
+    def clear_zero(self):
+        with self.lock:
+            self.zero_raw = None
+            self.target = [0.0] * 6
 
     def on_motor(self, fb):
         with self.lock:
@@ -240,6 +301,9 @@ class ClientApp:
         self.tk = tk
         self.root = root
         self.state = State()
+        saved = load_zero()
+        if saved is not None:
+            self.state.zero_raw = saved
         self.mq = None
         self.worker = None
         self.link = None
@@ -271,6 +335,10 @@ class ClientApp:
         self.btn.pack(side="right", padx=6)
         tk.Button(header, text="角度监控", command=self.open_angle_monitor,
                   bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
+        tk.Button(header, text="标定0", command=self.calibrate_zero,
+                  bg="#2d3d2a", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
+        tk.Button(header, text="清除0", command=self.clear_zero_cal,
+                  bg="#1e2a33", fg=fg, relief="flat", padx=10, pady=4).pack(side="right", padx=6)
         tk.Button(header, text="3D 仿真", command=self.open_web_sim,
                   bg="#1e2a33", fg=fg, relief="flat", padx=12, pady=4).pack(side="right", padx=6)
         tk.Button(header, text="扫描舵机", command=self.scan_servos,
@@ -403,6 +471,18 @@ class ClientApp:
         from arm_sim import ArmView
 
         self.sim = ArmView(self.root, self.state)
+
+    def calibrate_zero(self):
+        if not self.state.set_zero():
+            self._say("没有舵机数据，无法标定")
+            return
+        save_zero(self.state.zero_raw)
+        self._say("已标定：当前姿态为 0")
+
+    def clear_zero_cal(self):
+        self.state.clear_zero()
+        clear_saved_zero()
+        self._say("已清除 0 标定，恢复绝对映射")
 
     def open_angle_monitor(self):
         from angle_monitor import AngleMonitor
