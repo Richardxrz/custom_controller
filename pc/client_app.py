@@ -28,6 +28,7 @@ import payload
 import struct
 
 import cboard_link
+import robot_link
 import serial_link
 import serial.tools.list_ports as list_ports
 import servo_link as servo_link_mod
@@ -307,6 +308,7 @@ class ClientApp:
         self.mq = None
         self.worker = None
         self.link = None
+        self.robot_link = None
         self.motor_worker = None
         self.broker = None
         self.sim = None
@@ -420,6 +422,15 @@ class ClientApp:
         lab(right, "3D 模型", 4)
         self.model_path = entry(right, 4, 1, 38, WEB_MODEL)
         self.model_path.grid_configure(columnspan=3)
+        lab(right, "机器人链路", 5)
+        self.robot_mode = tk.StringVar(value="MQTT")
+        tk.OptionMenu(right, self.robot_mode, "MQTT", "串口").grid(
+            row=5, column=1, sticky="w")
+        lab(right, "机器人串口", 6)
+        self.robot_port = entry(right, 6, 1, 28, "")
+        self.robot_port.grid_configure(columnspan=3)
+        lab(right, "波特率", 7)
+        self.robot_baud = entry(right, 7, 1, 8, "921600")
 
         body = tk.Frame(root, bg=bg)
         body.pack(fill="both", expand=True, padx=14, pady=4)
@@ -559,42 +570,64 @@ class ClientApp:
         self.connect()
 
     def toggle(self):
-        if self.mq is not None:
+        if self.mq is not None or self.robot_link is not None or self.worker is not None:
             self.disconnect()
         else:
             self.connect()
 
     def connect(self):
-        host, port, cid = self.host.get().strip(), int(self.port.get()), self.cid.get().strip()
-        if self.broker_var.get() and host in ("127.0.0.1", "localhost"):
+        serial_mode = self.robot_mode.get() == "串口"
+        robot = None
+        if serial_mode:
+            rport = self.robot_port.get().strip()
+            if not rport:
+                self._say("串口模式需要填机器人串口")
+                return
             try:
-                self.broker = MockBroker(host, port)
-                self._say(f"本地 broker {host}:{port}")
-            except OSError:
-                self._say("broker 端口已占用，复用已有")
-        self.mq = mqtt_link.MqttLink(host, port, f"client-{cid}")
-        self.mq.handlers[mqtt_link.TOPIC_BYTE_BLOCK] = self.state.on_telemetry
-        self.mq.handlers["GameStatus"] = self.state.on_game
-        if not self.mq.start():
-            self._say(f"MQTT 连接失败：{self.mq.last_error}")
+                rbaud = int(self.robot_baud.get())
+            except ValueError:
+                rbaud = 921600
+            try:
+                robot = robot_link.SerialRobotLink(rport, rbaud, self.state.on_telemetry)
+            except Exception as exc:  # noqa: BLE001
+                self._say(f"机器人串口打开失败：{exc}")
+                return
+            self.robot_link = robot
             self.mq = None
-            return
+            self._say(f"机器人链路：串口 {rport} @ {rbaud}")
+        else:
+            host, port, cid = self.host.get().strip(), int(self.port.get()), self.cid.get().strip()
+            if self.broker_var.get() and host in ("127.0.0.1", "localhost"):
+                try:
+                    self.broker = MockBroker(host, port)
+                    self._say(f"本地 broker {host}:{port}")
+                except OSError:
+                    self._say("broker 端口已占用，复用已有")
+            self.mq = mqtt_link.MqttLink(host, port, f"client-{cid}")
+            self.mq.handlers[mqtt_link.TOPIC_BYTE_BLOCK] = self.state.on_telemetry
+            self.mq.handlers["GameStatus"] = self.state.on_game
+            if not self.mq.start():
+                self._say(f"MQTT 连接失败：{self.mq.last_error}")
+                self.mq = None
+                return
+            self._say(f"机器人链路：MQTT {host}:{port}")
+
         link = None
         specs = []
         if self.source_var.get() == "C板主端":
             try:
                 link = cboard_link.CBoardLink(self.master_port.get().strip(), 921600)
             except Exception as exc:  # noqa: BLE001
-                self._say(f"C 板串口打开失败，仅 MQTT 继续：{exc}")
+                self._say(f"C 板串口打开失败，仅机器人链路继续：{exc}")
             with self.state.lock:
                 self.state.active_channels = list(range(6))
                 self.state.channel_to_joint = list(range(6))
                 self.state.target = [0.0] * 6
         else:
             for e in (self.port_a, self.port_b):
-                s = e.get().strip()
-                if s:
-                    p, _, ids = s.rpartition(":")
+                spec = e.get().strip()
+                if spec:
+                    p, _, ids = spec.rpartition(":")
                     specs.append((p, [int(x) for x in ids.split(",")]))
             total_ids = sum(len(ids) for _, ids in specs)
             with self.state.lock:
@@ -604,18 +637,19 @@ class ClientApp:
                     self.state.channel_to_joint[0] = int(self.joint_var.get()[1:])
                 self.state.target = [0.0] * 6
             if not specs:
-                self._say("未配置舵机：仅 MQTT 模式")
+                self._say("未配置舵机：仅机器人链路")
             else:
                 try:
                     link = MultiServoLink(specs) if len(specs) > 1 else servo_link_mod.ServoLink(*specs[0])
                 except Exception as exc:  # noqa: BLE001
-                    self._say(f"舵机打开失败，仅 MQTT 继续：{exc}")
+                    self._say(f"舵机打开失败，仅机器人链路继续：{exc}")
         self.link = link
         with self.state.lock:
             self.state.servo = [1500] * 6
             self.state.target = [0.0] * 6
-        if link is not None:
-            self.worker = ServoWorker(link, self.mq, self.state)
+        sink = robot if serial_mode else self.mq
+        if link is not None and sink is not None:
+            self.worker = ServoWorker(link, sink, self.state)
             self.worker.start()
             if hasattr(link, "send_config"):
                 deg = 360 if self.range_var.get().startswith("360") else 270
@@ -627,7 +661,7 @@ class ClientApp:
                                             float(self.kd.get()))
             self.motor_worker.start()
         self.btn.configure(text="断开")
-        self._say(f"已连接 {host}:{port}，来源 {self.source_var.get()}")
+        self._say(f"已连接，来源 {self.source_var.get()}，机器人 {self.robot_mode.get()}")
 
     def disconnect(self):
         if self.motor_worker is not None:
@@ -638,6 +672,9 @@ class ClientApp:
             self.worker.stop()
             self.worker = None
         self.link = None
+        if self.robot_link is not None:
+            self.robot_link.close()
+            self.robot_link = None
         if self.mq is not None:
             self.mq.stop()
             self.mq = None
