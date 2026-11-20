@@ -6,19 +6,19 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import client_app  # noqa: E402
+import payload  # noqa: E402
 
 
 class TestClientState(unittest.TestCase):
-    def test_mapped_overrides_raw(self):
+    def test_startup_center(self):
         st = client_app.State()
-        st.active_channels = [0]
-        st.channel_to_joint = [0] * 6
-        st.on_mapped(b"\x01\x00" + b"\x00" * 12 +
-                     b"".join(struct.pack("<h", v) for v in
-                              [13500, -13500, 0, 100, 200, 300]))
-        self.assertAlmostEqual(st.target[0], 135.0 * 3.141592653589793 / 180.0)
-        self.assertAlmostEqual(st.target[1], -135.0 * 3.141592653589793 / 180.0)
-        self.assertAlmostEqual(st.target[5], 3.0 * 3.141592653589793 / 180.0)
+        st.center_after = 0
+        st.on_control(payload.encode_uplink(payload.Uplink(joints=[2000] * 6)))
+        self.assertEqual(st.servo, [1500] * 6)
+        self.assertEqual(st.target, [0.0] * 6)
+        st.on_control(payload.encode_uplink(payload.Uplink(joints=[2100] * 6)))
+        self.assertEqual(st.servo, [1600] * 6)
+        self.assertAlmostEqual(st.target[0], 0.1 * st.joint_limit)
 
     def test_scan_report(self):
         st = client_app.State()

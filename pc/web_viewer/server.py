@@ -28,8 +28,8 @@ def _find_web_dir() -> str:
     candidates.append(os.path.join(os.path.dirname(here), "Resources", "web_viewer"))
     for c in candidates:
         if os.path.isfile(os.path.join(c, "index.html")):
-            return c
-    return here
+            return os.path.realpath(c)
+    return os.path.realpath(here)
 
 
 WEB_DIR = _find_web_dir()
@@ -105,8 +105,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/":
             path = "/index.html"
-        full = os.path.realpath(os.path.join(WEB_DIR, path.lstrip("/")))
-        if not full.startswith(WEB_DIR + os.sep):
+        root = os.path.realpath(WEB_DIR)
+        full = os.path.realpath(os.path.join(root, path.lstrip("/")))
+        try:
+            inside = os.path.commonpath([root, full]) == root
+        except ValueError:
+            inside = False
+        if not inside:
             self._send(403, b"forbidden", "text/plain")
             return
         self._file(full)
