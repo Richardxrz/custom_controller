@@ -38,6 +38,28 @@ static uint8_t s_map_frame[64];
 static uint8_t s_scan_frame[64];
 static RmParser s_pc;
 
+static uint32_t s_led_last;
+static uint8_t s_led_phase;
+
+/* 板载 RGB 共阳：PH12 红、PH11 绿、PH10 蓝，高电平点亮。
+ * 120 ms 一拍，红→灭→绿→灭→蓝→灭，表示固件主循环还活着。 */
+static void led_tick(void) {
+  uint32_t now = HAL_GetTick();
+  if ((uint32_t)(now - s_led_last) < 120u) {
+    return;
+  }
+  s_led_last = now;
+  s_led_phase = (uint8_t)((s_led_phase + 1u) % 6u);
+  HAL_GPIO_WritePin(LED_R_GPIO_Port,
+                    LED_R_Pin | LED_G_Pin | LED_B_Pin, GPIO_PIN_RESET);
+  switch (s_led_phase) {
+  case 0: HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_R_Pin, GPIO_PIN_SET); break;
+  case 2: HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_G_Pin, GPIO_PIN_SET); break;
+  case 4: HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_B_Pin, GPIO_PIN_SET); break;
+  default: break;
+  }
+}
+
 static uint8_t scan_bus(BusServoPort port, uint8_t *out, uint8_t cap) {
   uint8_t n = 0;
   for (uint16_t id = 1; id <= 253 && n < cap; id++) {
@@ -50,6 +72,7 @@ static uint8_t scan_bus(BusServoPort port, uint8_t *out, uint8_t cap) {
     uint32_t t0 = HAL_GetTick();
     while ((HAL_GetTick() - t0) < 15u) {
       BusServo_Poll(&s);
+      led_tick();
       if (BusServo_GetState(&s) != BUS_SERVO_WAIT) {
         break;
       }
@@ -140,6 +163,7 @@ static void send_scan_report(void) {
 }
 
 void Master_Setup(void) {
+  led_tick();
   Board_Uart1_Init(115200);
   Board_Uart6_SetBaud(115200);
   TxIt_Init(&huart1);
@@ -161,6 +185,7 @@ void Master_Setup(void) {
 
 void Master_Loop(void) {
   uint32_t now = HAL_GetTick();
+  led_tick();
   BusServoGroup_Poll(&s_group_a, now);
   BusServoGroup_Poll(&s_group_b, now);
   poll_pc();
