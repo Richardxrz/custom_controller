@@ -144,8 +144,8 @@ static void send_telemetry(void) {
       s_down.joint[i].vel_crad = (int16_t)(s_fb[i].vel * 100.0f);
       s_down.joint[i].torque_cnm = (int16_t)(s_fb[i].torque * 100.0f);
       s_down.joint[i].err = s_fb[i].err;
+      s_down.joint[i].temp_c = (int8_t)s_fb[i].temp_rotor;
     }
-    s_down.joint[i].temp_c = 0; /* 温度位域待手册核对，先不猜 */
   }
   s_down.vbus_mv = 24000;
   s_down.lost_frames = 0;

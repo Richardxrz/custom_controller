@@ -51,6 +51,8 @@ def mit_pack(cfg: MotorCfg, pos: float, vel: float, kp: float, kd: float, torque
 def feedback_decode(cfg: MotorCfg, data: bytes) -> dict | None:
     if len(data) != 8:
         return None
+    if (data[0] & 0x0F) != cfg.id:
+        return None
     p = (data[1] << 8) | data[2]
     v = (data[3] << 4) | (data[4] >> 4)
     t = ((data[4] & 0x0F) << 8) | data[5]

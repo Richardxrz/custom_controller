@@ -55,6 +55,10 @@ bool Dm_FeedbackDecode(DmFeedback *fb, const DmMotorCfg *cfg, const uint8_t data
   if (fb == NULL || cfg == NULL || data == NULL) {
     return false;
   }
+  /* 反馈 data[0] 低 4 位是电机 ID；总线上有多台时先按它过滤，避免串帧。 */
+  if ((data[0] & 0x0Fu) != cfg->id) {
+    return false;
+  }
   /* 官方反馈：state | p(16) | v(12) | t(12) | Tmos | Trotor；电机 ID 在 CAN 帧 ID 上 */
   uint16_t p = (uint16_t)(((uint16_t)data[1] << 8) | data[2]);
   uint16_t v = (uint16_t)(((uint16_t)data[3] << 4) | (data[4] >> 4));
