@@ -10,15 +10,19 @@ import payload  # noqa: E402
 
 
 class TestClientState(unittest.TestCase):
-    def test_startup_center(self):
+    def test_absolute_mapping(self):
         st = client_app.State()
-        st.center_after = 0
-        st.on_control(payload.encode_uplink(payload.Uplink(joints=[2000] * 6)))
-        self.assertEqual(st.servo, [1500] * 6)
-        self.assertEqual(st.target, [0.0] * 6)
-        st.on_control(payload.encode_uplink(payload.Uplink(joints=[2100] * 6)))
-        self.assertEqual(st.servo, [1600] * 6)
-        self.assertAlmostEqual(st.target[0], 0.1 * st.joint_limit)
+        st.on_control(payload.encode_uplink(payload.Uplink(joints=[2500] * 6)))
+        self.assertEqual(st.servo, [2500] * 6)
+        self.assertAlmostEqual(st.target[0], st.joint_limit)
+
+    def test_mapped_absolute(self):
+        st = client_app.State()
+        st.on_mapped(b"\x01\x00" + b"\x00" * 12 +
+                     b"".join(struct.pack("<h", v) for v in
+                              [13500, -13500, 0, 100, 200, 300]))
+        self.assertAlmostEqual(st.target[0], 135.0 * 3.141592653589793 / 180.0)
+        self.assertAlmostEqual(st.target[1], -135.0 * 3.141592653589793 / 180.0)
 
     def test_scan_report(self):
         st = client_app.State()

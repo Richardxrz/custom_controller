@@ -71,9 +71,6 @@ class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.servo = [1500] * 6
-        self.raw = [1500] * 6
-        self.centers = None
-        self.center_after = 0.0
         self.target = [0.0] * 6
         self.actual = [0.0] * 6
         self.tau = [0.0] * 6
@@ -93,27 +90,17 @@ class State:
         up = payload.decode_uplink(data)
         if up is None:
             return
-        raw = list(up.joints)
         with self.lock:
-            self.raw = raw
-            if self.centers is None and time.time() >= self.center_after:
-                self.centers = list(raw)
-            if self.centers is None:
-                self.servo = [1500] * 6
-                self.target = [0.0] * 6
-            else:
-                servo = [1500] * 6
-                targets = [0.0] * 6
-                for i, r in enumerate(raw):
-                    c = self.centers[i]
-                    servo[i] = max(500, min(2500, 1500 + r - c))
-                    if i not in self.active_channels:
-                        continue
-                    j = self.channel_to_joint[i] if i < 6 else i
-                    if 0 <= j < 6:
-                        targets[j] = (r - c) / 1000.0 * self.joint_limit
-                self.servo = servo
-                self.target = targets
+            self.servo = list(up.joints)
+            targets = [0.0] * 6
+            jm = joint_map.JointMap(joint_min=-self.joint_limit, joint_max=self.joint_limit)
+            for i, raw in enumerate(up.joints):
+                if i not in self.active_channels:
+                    continue
+                j = self.channel_to_joint[i] if i < 6 else i
+                if 0 <= j < 6:
+                    targets[j] = jm.to_joint(raw)
+            self.target = targets
             self.pub += 1
             self.servo_seen = True
 
@@ -134,9 +121,12 @@ class State:
             self.game += 1
 
     def on_mapped(self, data: bytes):
-        # 保留 mapped 帧用于诊断；显示/3D 使用上电零点后的相对角度
         if len(data) < 26:
             return
+        vals = [math.radians(struct.unpack_from("<h", data, 14 + i * 2)[0] / 100.0)
+                for i in range(6)]
+        with self.lock:
+            self.target = vals
 
     def on_scan(self, data: bytes):
         if len(data) < 15:
@@ -527,8 +517,6 @@ class ClientApp:
                     self._say(f"舵机打开失败，仅 MQTT 继续：{exc}")
         self.link = link
         with self.state.lock:
-            self.state.centers = None
-            self.state.center_after = time.time() + 0.5
             self.state.servo = [1500] * 6
             self.state.target = [0.0] * 6
         if link is not None:
